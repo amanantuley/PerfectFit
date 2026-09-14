@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Script from 'next/script';
 import {
   SidebarProvider,
   Sidebar,
@@ -248,15 +249,21 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
     </>
   );
 }
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <AppProvider>
-        <SubscriptionProvider>
-          <AppLayoutContent>{children}</AppLayoutContent>
-        </SubscriptionProvider>
-      </AppProvider>
-    </SidebarProvider>
+    <>
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="afterInteractive"
+      />
+
+      <SidebarProvider>
+        <AppProvider>
+          <SubscriptionProvider>
+            <AppLayoutContent>{children}</AppLayoutContent>
+          </SubscriptionProvider>
+        </AppProvider>
+      </SidebarProvider>
+    </>
   );
 }
