@@ -1,8 +1,6 @@
 'use client';
 
-import {
-  Button
-} from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -10,20 +8,14 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import {
-  Input
-} from '@/components/ui/input';
-import {
-  Label
-} from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Avatar,
   AvatarFallback,
   AvatarImage
 } from '@/components/ui/avatar';
-import {
-  Separator
-} from '@/components/ui/separator';
+import { Separator } from '@/components/ui/separator';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,104 +27,112 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
-import { Loader2, Camera, Trash2, User, MapPin, Lock, Mail, ShieldCheck, Activity, Calendar } from 'lucide-react';
+import { Loader2, Camera, Trash2, User, MapPin, Mail, ShieldCheck, Activity, Calendar, Phone } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useFormState, useFormStatus } from 'react-dom';
-import { submitProfile, deleteAccount } from './actions';
-import { auth } from '@/lib/firebase';
-import { signOut, updateProfile } from 'firebase/auth';
+import { useAuthContext } from '@/context/auth-provider';
+import { usersApi, apiFetch } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import React, { useEffect, useRef, useState } from 'react';
-
-const initialState = { message: '', error: false };
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" className="w-full sm:w-auto" disabled={pending}>
-      {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-      {pending ? 'Updating...' : 'Update Profile'}
-    </Button>
-  );
-}
+import React, { useEffect, useState } from 'react';
 
 export default function ProfilePage() {
   const { toast } = useToast();
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
-  const [state, formAction] = useFormState(submitProfile, initialState);
+  const { user, refreshUser, logout } = useAuthContext();
 
   const [avatarPreview, setAvatarPreview] = useState<string>('');
-  const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [street, setStreet] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [zip, setZip] = useState('');
+
+  const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(user => {
-      if (user) {
-        setUserName(user.displayName || 'User');
-        setUserEmail(user.email || '');
-        setAvatarPreview(user.photoURL || 'https://placehold.co/100x100?text=User');
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    if (user) {
+      setFirstName(user.first_name || '');
+      setLastName(user.last_name || '');
+      setPhone(user.phone || '');
+      setStreet(user.address || '');
+      setCity(user.city || '');
+      setState(user.state || '');
+      setZip(user.postal_code || '');
+      setAvatarPreview(user.profile_image_url || '');
+    }
+  }, [user]);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = reader.result as string;
-      setAvatarPreview(base64);
-      const user = auth.currentUser;
-      if (user) {
-        await updateProfile(user, { photoURL: base64 });
-        toast({
-          title: 'Profile Picture Updated',
-          description: 'Your avatar has been successfully updated.',
-        });
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleDeleteAccount = async () => {
-    const result = await deleteAccount();
-    if (!result.error) {
-      await signOut(auth);
+    setUploadingAvatar(true);
+    try {
+      const res = await usersApi.uploadProfilePicture(file);
+      setAvatarPreview(res.url);
+      await refreshUser();
       toast({
-        title: 'Account Deleted',
-        description: result.message,
+        title: 'Profile Picture Updated',
+        description: 'Your avatar has been successfully updated.',
       });
-      router.push('/');
-    } else {
+    } catch (err: any) {
       toast({
         variant: 'destructive',
-        title: 'Error Deleting Account',
-        description: result.message,
+        title: 'Upload Failed',
+        description: err.message || 'Failed to upload profile picture.',
       });
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
-  useEffect(() => {
-    if (!state.message) return;
-    toast({
-      variant: state.error ? 'destructive' : 'default',
-      title: state.error ? 'Update Error' : 'Profile Updated!',
-      description: state.message,
-    });
-  }, [state, toast]);
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await usersApi.updateMe({
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone,
+        address: street,
+        city: city,
+        state: state,
+        postal_code: zip,
+      });
+      await refreshUser();
+      toast({
+        title: 'Profile Updated!',
+        description: 'Your changes have been saved successfully.',
+      });
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Update Failed',
+        description: err.message || 'Failed to update profile.',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[60vh] text-muted-foreground">
-        <Loader2 className="h-6 w-6 mr-2 animate-spin" /> Loading profile...
-      </div>
-    );
-  }
+  const handleDeleteAccount = async () => {
+    try {
+      await apiFetch('/users/me', { method: 'DELETE' });
+      toast({
+        title: 'Account Deleted',
+        description: 'Your account has been deleted successfully.',
+      });
+      await logout();
+      router.push('/');
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error Deleting Account',
+        description: err.message || 'Failed to delete account.',
+      });
+    }
+  };
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -142,12 +142,12 @@ export default function ProfilePage() {
         <div className="relative space-y-4">
           <div>
             <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500">Profile Management</h1>
-            <p className="mt-3 text-lg text-muted-foreground max-w-2xl">Manage your personal information, shipping addresses, security settings, and account preferences.</p>
+            <p className="mt-3 text-lg text-muted-foreground max-w-2xl">Manage your personal information, shipping addresses, and account preferences.</p>
           </div>
           <div className="flex flex-wrap gap-2 pt-4">
             <span className="text-xs px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-muted-foreground">🔒 Secure & Encrypted</span>
-            <span className="text-xs px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-muted-foreground">✅ Auto-Save</span>
-            <span className="text-xs px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-muted-foreground">📧 Email Verification</span>
+            <span className="text-xs px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-muted-foreground">✅ Database Backed</span>
+            <span className="text-xs px-3 py-1 rounded-full border border-primary/30 bg-primary/5 text-muted-foreground">📧 Email Verified</span>
           </div>
         </div>
       </div>
@@ -162,14 +162,18 @@ export default function ProfilePage() {
           </CardHeader>
 
           <CardContent>
-            <form ref={formRef} action={formAction} className="space-y-8">
+            <form onSubmit={handleUpdateProfile} className="space-y-8">
               {/* Avatar + Basic Info */}
               <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-lg bg-muted/20 border border-muted/30">
                 <div className="relative group">
                   <Avatar className="h-28 w-28 ring-4 ring-primary/20 shadow-xl transition-transform group-hover:scale-105">
                     <AvatarImage src={avatarPreview} alt="User Avatar" />
                     <AvatarFallback className="bg-primary/10">
-                      <User className="h-12 w-12 text-primary" />
+                      {uploadingAvatar ? (
+                        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                      ) : (
+                        <User className="h-12 w-12 text-primary" />
+                      )}
                     </AvatarFallback>
                   </Avatar>
                   <Label
@@ -183,37 +187,68 @@ export default function ProfilePage() {
                       className="sr-only"
                       accept="image/*"
                       onChange={handleAvatarChange}
+                      disabled={uploadingAvatar}
                     />
                   </Label>
                 </div>
 
                 <div className="flex-1 w-full space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name" className="flex items-center gap-2 text-sm font-semibold">
-                      <User className="h-4 w-4 text-primary" />
-                      Full Name
-                    </Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      value={userName}
-                      readOnly
-                      className="cursor-not-allowed bg-muted/40 border-muted/50"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName" className="flex items-center gap-2 text-sm font-semibold">
+                        <User className="h-4 w-4 text-primary" />
+                        First Name
+                      </Label>
+                      <Input
+                        id="firstName"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="John"
+                        className="border-muted/50 focus:border-primary"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName" className="flex items-center gap-2 text-sm font-semibold">
+                        <User className="h-4 w-4 text-primary" />
+                        Last Name
+                      </Label>
+                      <Input
+                        id="lastName"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="Doe"
+                        className="border-muted/50 focus:border-primary"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="flex items-center gap-2 text-sm font-semibold">
-                      <Mail className="h-4 w-4 text-primary" />
-                      Email Address
-                    </Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      value={userEmail}
-                      readOnly
-                      className="cursor-not-allowed bg-muted/40 border-muted/50"
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="flex items-center gap-2 text-sm font-semibold">
+                        <Mail className="h-4 w-4 text-primary" />
+                        Email Address
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={user?.email || ''}
+                        readOnly
+                        className="cursor-not-allowed bg-muted/40 border-muted/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone" className="flex items-center gap-2 text-sm font-semibold">
+                        <Phone className="h-4 w-4 text-primary" />
+                        Phone Number
+                      </Label>
+                      <Input
+                        id="phone"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className="border-muted/50 focus:border-primary"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -227,42 +262,30 @@ export default function ProfilePage() {
                   <h3 className="text-lg font-semibold text-foreground">Shipping Address</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {[
-                    { id: 'street', label: 'Street Address', placeholder: '123 Fashion Ave' },
-                    { id: 'city', label: 'City', placeholder: 'Style City' },
-                    { id: 'state', label: 'State', placeholder: 'NY' },
-                    { id: 'zip', label: 'ZIP Code', placeholder: '10001' },
-                  ].map((field) => (
-                    <div key={field.id} className="space-y-2">
-                      <Label htmlFor={field.id} className="text-sm font-medium">{field.label}</Label>
-                      <Input id={field.id} name={field.id} placeholder={field.placeholder} className="border-muted/50 focus:border-primary" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Password Section */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Lock className="h-5 w-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground">Security Settings</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="current-password" className="text-sm font-medium">Current Password</Label>
-                    <Input id="current-password" name="currentPassword" type="password" placeholder="••••••••" className="border-muted/50 focus:border-primary" />
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="street" className="text-sm font-medium">Street Address</Label>
+                    <Input id="street" value={street} onChange={(e) => setStreet(e.target.value)} placeholder="123 Fashion Ave" className="border-muted/50 focus:border-primary" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="new-password" className="text-sm font-medium">New Password</Label>
-                    <Input id="new-password" name="newPassword" type="password" placeholder="••••••••" className="border-muted/50 focus:border-primary" />
+                    <Label htmlFor="city" className="text-sm font-medium">City</Label>
+                    <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Mumbai" className="border-muted/50 focus:border-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="state" className="text-sm font-medium">State</Label>
+                    <Input id="state" value={state} onChange={(e) => setState(e.target.value)} placeholder="Maharashtra" className="border-muted/50 focus:border-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zip" className="text-sm font-medium">Postal Code</Label>
+                    <Input id="zip" value={zip} onChange={(e) => setZip(e.target.value)} placeholder="400001" className="border-muted/50 focus:border-primary" />
                   </div>
                 </div>
               </div>
 
               <div className="flex justify-end pt-4">
-                <SubmitButton />
+                <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
+                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saving ? 'Saving...' : 'Update Profile'}
+                </Button>
               </div>
             </form>
           </CardContent>
@@ -279,21 +302,23 @@ export default function ProfilePage() {
                 <ShieldCheck className="h-5 w-5 text-primary" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold">Verified Account</p>
-                  <p className="text-xs text-muted-foreground">Email confirmed</p>
+                  <p className="text-xs text-muted-foreground">{user?.role || 'Customer'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20">
                 <Activity className="h-5 w-5 text-primary" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold">Active</p>
-                  <p className="text-xs text-muted-foreground">Last login: Today</p>
+                  <p className="text-xs text-muted-foreground">Session: Authenticated</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20">
                 <Calendar className="h-5 w-5 text-primary" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold">Member Since</p>
-                  <p className="text-xs text-muted-foreground">2025</p>
+                  <p className="text-xs text-muted-foreground">
+                    {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Recent'}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -344,11 +369,7 @@ export default function ProfilePage() {
         <div className="max-w-4xl space-y-3">
           <div className="flex items-start gap-3 text-sm text-muted-foreground">
             <ShieldCheck className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-            <p><strong>Privacy Protected:</strong> Your personal information is encrypted and never shared with third parties without your consent.</p>
-          </div>
-          <div className="flex items-start gap-3 text-sm text-muted-foreground">
-            <Lock className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-            <p><strong>Secure Storage:</strong> All passwords are hashed using industry-standard encryption. We never store plain-text passwords.</p>
+            <p><strong>Privacy Protected:</strong> Your personal information is encrypted and stored securely in PostgreSQL.</p>
           </div>
         </div>
       </div>

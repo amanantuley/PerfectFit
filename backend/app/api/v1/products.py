@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 from app.db.database import get_db
 from app.models import Product
 from app.schemas.schemas import ProductResponse, ProductCreate, ProductUpdate
@@ -12,6 +13,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/products", tags=["Products"])
+
+
+def to_uuid(val):
+    if val is None or isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return val
+
 
 
 @router.get("", response_model=List[ProductResponse])
@@ -70,7 +81,7 @@ async def get_product(
     db: Session = Depends(get_db)
 ):
     """Get product by ID"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).filter(Product.id == to_uuid(product_id)).first()
 
     if not product or not product.is_active:
         raise ProductNotFoundError()
@@ -106,7 +117,7 @@ async def update_product(
     db: Session = Depends(get_db)
 ):
     """Update product (Admin only)"""
-    db_product = db.query(Product).filter(Product.id == product_id).first()
+    db_product = db.query(Product).filter(Product.id == to_uuid(product_id)).first()
 
     if not db_product:
         raise ProductNotFoundError()
@@ -130,7 +141,7 @@ async def delete_product(
     db: Session = Depends(get_db)
 ):
     """Delete product (Admin only)"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).filter(Product.id == to_uuid(product_id)).first()
 
     if not product:
         raise ProductNotFoundError()
@@ -149,7 +160,7 @@ async def get_product_details(
     db: Session = Depends(get_db)
 ):
     """Get detailed product information"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).filter(Product.id == to_uuid(product_id)).first()
 
     if not product or not product.is_active:
         raise ProductNotFoundError()
@@ -165,7 +176,7 @@ async def rate_product(
     db: Session = Depends(get_db)
 ):
     """Rate a product"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).filter(Product.id == to_uuid(product_id)).first()
 
     if not product:
         raise ProductNotFoundError()

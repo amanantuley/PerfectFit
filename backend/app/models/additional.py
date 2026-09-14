@@ -230,7 +230,7 @@ class Subscription(Base):
     price = Column(Float, nullable=False)
     
     # Status
-    status = Column(String, default="active")  # active, cancelled, expired
+    status = Column(String, default="pending")  # active, cancelled, expired
     auto_renew = Column(Boolean, default=True)
     
     # Dates

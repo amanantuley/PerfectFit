@@ -1,7 +1,6 @@
 'use server';
 
 import { z } from 'zod';
-import { tailors } from '@/lib/tailors';
 
 // Define strong TypeScript types
 type OrderResponse = {
@@ -16,14 +15,9 @@ type OrderResponse = {
 };
 
 export async function submitOrder(prevState: any, formData: FormData): Promise<OrderResponse> {
-  // ✅ Build Zod schema dynamically from tailor list
-  const tailorIds = tailors.map((t) => t.id) as [string, ...string[]];
-
   const schema = z.object({
     items: z.string().min(1, { message: 'Cart is empty.' }),
-    tailor: z.enum(tailorIds, {
-      errorMap: () => ({ message: 'Please select a valid tailor.' }),
-    }),
+    tailor: z.string().optional(),
   });
 
   // ✅ Parse form data safely

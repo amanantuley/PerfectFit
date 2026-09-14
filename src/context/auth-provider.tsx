@@ -7,6 +7,7 @@ type AuthContextValue = {
   user: ApiUser | null;
   loading: boolean;
   refresh: () => Promise<ApiUser | null>;
+  refreshUser: () => Promise<ApiUser | null>;
   login: (email: string, password: string) => Promise<ApiUser>;
   register: (email: string, password: string) => Promise<ApiUser>;
   logout: () => Promise<void>;
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     loading,
     refresh,
+    refreshUser: refresh,
     async login(email, password) { await authApi.login(email, password); const verified = await refresh(); if (!verified) throw new Error('Session verification failed'); return verified; },
     async register(email, password) { const registered = await authApi.register({ email, password }); setUser(registered); return registered; },
     async logout() { try { await authApi.logout(); } finally { setUser(null); } },
@@ -51,3 +53,5 @@ export function useAuth() {
   if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }
+
+export const useAuthContext = useAuth;

@@ -13,20 +13,33 @@ from app.schemas.schemas import (MeasurementCreate, MeasurementResponse, Message
     RewardResponse, SubscriptionCreate, SubscriptionResponse, TailorCreate, TailorResponse,
     TransactionResponse, WalletAddMoney, WalletResponse)
 
+from uuid import UUID
+
 router = APIRouter(tags=["Platform"])
 
 
+def to_uuid(val):
+    if val is None or isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return val
+
+
 def wallet_for(user_id, db: Session) -> Wallet:
-    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    uid = to_uuid(user_id)
+    wallet = db.query(Wallet).filter(Wallet.user_id == uid).first()
     if not wallet:
-        wallet = Wallet(user_id=user_id, balance=0)
+        wallet = Wallet(user_id=uid, balance=0)
         db.add(wallet)
         db.flush()
     return wallet
 
 
 def reward_for(user_id, db: Session) -> Reward:
-    reward = db.query(Reward).filter(Reward.user_id == user_id).first()
+    uid = to_uuid(user_id)
+    reward = db.query(Reward).filter(Reward.user_id == uid).first()
     if not reward:
         reward = Reward(user_id=user_id, points_earned=0, points_used=0, current_balance=0)
         db.add(reward)
@@ -103,7 +116,7 @@ async def redeem_rewards(points: int, current_user: dict = Depends(get_current_u
 
 @router.get("/subscriptions", response_model=list[SubscriptionResponse])
 async def list_subscriptions(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(Subscription).filter(Subscription.user_id == current_user["user_id"]).order_by(Subscription.created_at.desc()).all()
+    return db.query(Subscription).filter(Subscription.user_id == to_uuid(current_user["user_id"])).order_by(Subscription.created_at.desc()).all()
 
 
 @router.post("/subscriptions", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED)
@@ -112,35 +125,35 @@ async def create_subscription(data: SubscriptionCreate, current_user: dict = Dep
     plan = data.plan_type.lower()
     if plan not in prices: raise HTTPException(status_code=400, detail="Unknown subscription plan")
     now = datetime.utcnow()
-    db.query(Subscription).filter(Subscription.user_id == current_user["user_id"], Subscription.status == "active").update({"status": "cancelled", "cancelled_at": now})
-    subscription = Subscription(user_id=current_user["user_id"], plan_type=plan, price=prices[plan], start_date=now, end_date=now + timedelta(days=30), renewal_date=now + timedelta(days=30))
+    db.query(Subscription).filter(Subscription.user_id == to_uuid(current_user["user_id"]), Subscription.status == "active").update({"status": "cancelled", "cancelled_at": now})
+    subscription = Subscription(user_id=to_uuid(current_user["user_id"]), plan_type=plan, price=prices[plan], status="pending", start_date=now, end_date=now + timedelta(days=30), renewal_date=now + timedelta(days=30))
     db.add(subscription); db.commit(); db.refresh(subscription); return subscription
 
 
 @router.post("/subscriptions/{subscription_id}/cancel", response_model=SubscriptionResponse)
 async def cancel_subscription(subscription_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    subscription = db.query(Subscription).filter(Subscription.id == subscription_id, Subscription.user_id == current_user["user_id"]).first()
+    subscription = db.query(Subscription).filter(Subscription.id == to_uuid(subscription_id), Subscription.user_id == to_uuid(current_user["user_id"])).first()
     if not subscription: raise HTTPException(status_code=404, detail="Subscription not found")
     subscription.status, subscription.auto_renew, subscription.cancelled_at = "cancelled", False, datetime.utcnow(); db.commit(); db.refresh(subscription); return subscription
 
 
 @router.get("/returns", response_model=list[ReturnRequestResponse])
 async def list_returns(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(ReturnRequest).filter(ReturnRequest.user_id == current_user["user_id"]).order_by(ReturnRequest.created_at.desc()).all()
+    return db.query(ReturnRequest).filter(ReturnRequest.user_id == to_uuid(current_user["user_id"])).order_by(ReturnRequest.created_at.desc()).all()
 
 
 @router.post("/returns", response_model=ReturnRequestResponse, status_code=status.HTTP_201_CREATED)
 async def create_return(data: ReturnRequestCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == data.order_id, Order.user_id == current_user["user_id"]).first()
+    order = db.query(Order).filter(Order.id == to_uuid(data.order_id), Order.user_id == to_uuid(current_user["user_id"])).first()
     if not order: raise HTTPException(status_code=404, detail="Order not found")
     if order.status.value not in {"delivered", "processing", "shipped"}: raise HTTPException(status_code=400, detail="This order cannot be returned yet")
-    request = ReturnRequest(user_id=current_user["user_id"], **data.model_dump())
+    request = ReturnRequest(user_id=to_uuid(current_user["user_id"]), **data.model_dump())
     db.add(request); db.commit(); db.refresh(request); return request
 
 
 @router.get("/notifications", response_model=list[NotificationResponse])
 async def list_notifications(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(Notification).filter(Notification.user_id == current_user["user_id"]).order_by(Notification.created_at.desc()).all()
+    return db.query(Notification).filter(Notification.user_id == to_uuid(current_user["user_id"])).order_by(Notification.created_at.desc()).all()
 
 
 @router.post("/notifications/{notification_id}/read")

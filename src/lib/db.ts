@@ -19,7 +19,7 @@ export type Product = {
   name: string;
   type: string;
   image: string;
-  dataAiHint: string;
+  dataAiHint?: string;
   price: number;
   rentPrice: number;
   description: string;

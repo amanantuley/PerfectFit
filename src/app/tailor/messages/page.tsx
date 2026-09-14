@@ -5,114 +5,76 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Send, MessageCircle, ArrowLeft } from 'lucide-react';
+import { Send, MessageCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from '@/context/translation-provider';
 import { useToast } from '@/hooks/use-toast';
-
-type Message = { role: 'user' | 'tailor'; content: string };
-type Conversation = {
-  name: string;
-  order: string;
-  avatar: string;
-  messages: Message[];
-};
-
-type ConversationKey = string;
-
-// ✅ Default sample data
-const defaultConversations: Record<ConversationKey, Conversation> = {
-  rohan: {
-    name: 'Rohan Sharma',
-    order: '#T307',
-    avatar: 'https://placehold.co/100x100.png',
-    messages: [
-      { role: 'user', content: 'Hi! For the casual shirt, could you make the sleeves a bit longer?' },
-      { role: 'tailor', content: 'Absolutely! I’ll add an inch to the sleeves. Great choice of fabric!' },
-    ],
-  },
-  priya: {
-    name: 'Priya Patel',
-    order: '#T302',
-    avatar: 'https://placehold.co/100x100.png',
-    messages: [{ role: 'user', content: 'Hello! Any updates on my Navy Blue Suit?' }],
-  },
-  sneha: {
-    name: 'Sneha Reddy',
-    order: '#T304',
-    avatar: 'https://placehold.co/100x100.png',
-    messages: [
-      { role: 'user', content: 'Could you confirm the delivery date for my order?' },
-      { role: 'tailor', content: 'It’s scheduled for delivery by November 10th as planned.' },
-    ],
-  },
-  amit: {
-    name: 'Amit Singh',
-    order: '#T299',
-    avatar: 'https://placehold.co/100x100.png',
-    messages: [{ role: 'user', content: 'The shirt fits perfectly, thank you so much!' }],
-  },
-};
+import { platformApi, ApiMessage } from '@/lib/api';
+import { useAuthContext } from '@/context/auth-provider';
 
 export default function TailorMessagesPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { user } = useAuthContext();
 
-  const [conversations, setConversations] = useState(defaultConversations);
-  const [activeConversation, setActiveConversation] = useState<ConversationKey | null>('rohan');
-  const [mobileActive, setMobileActive] = useState(false);
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [activeReceiverId, setActiveReceiverId] = useState<string | null>(null);
+  const [mobileActive, setMobileActive] = useState(false);
 
-  // ✅ Load saved chats from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('tailor_chats');
-    if (saved) setConversations(JSON.parse(saved));
-  }, []);
-
-  // ✅ Save to localStorage whenever chats change
-  useEffect(() => {
-    localStorage.setItem('tailor_chats', JSON.stringify(conversations));
-  }, [conversations]);
-
-  const currentConversation = activeConversation ? conversations[activeConversation] : null;
-
-  const handleSelectConversation = (key: ConversationKey) => {
-    setActiveConversation(key);
-    setMobileActive(true);
+  const loadMessages = async () => {
+    try {
+      setLoading(true);
+      const data = await platformApi.listMessages();
+      setMessages(data || []);
+      if (data && data.length > 0) {
+        const otherId = data[0].sender_id === user?.id ? data[0].receiver_id : data[0].sender_id;
+        setActiveReceiverId(otherId);
+      }
+    } catch (err: any) {
+      console.error('Failed to load messages:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ✅ Send message handler
-  const handleSendMessage = (e: React.FormEvent) => {
+  useEffect(() => {
+    loadMessages();
+  }, [user]);
+
+  const activeMessages = messages.filter(
+    (m) =>
+      (m.sender_id === activeReceiverId || m.receiver_id === activeReceiverId)
+  );
+
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim() || !activeConversation) return;
+    if (!messageInput.trim() || !activeReceiverId) return;
 
-    const newMsg: Message = { role: 'tailor', content: messageInput.trim() };
-
-    setConversations((prev) => {
-      const updated = { ...prev };
-      updated[activeConversation].messages.push(newMsg);
-      return updated;
-    });
-
-    setMessageInput('');
-
-    toast({
-      title: 'Message sent',
-      description: 'Your reply has been added to the chat.',
-    });
-
-    // 🧠 Optional: Simulate a user auto-reply (fun!)
-    setTimeout(() => {
-      setConversations((prev) => {
-        const updated = { ...prev };
-        updated[activeConversation].messages.push({
-          role: 'user',
-          content: 'Got it! Thanks for the quick response.',
-        });
-        return updated;
+    setSending(true);
+    try {
+      const sent = await platformApi.sendMessage({
+        receiver_id: activeReceiverId,
+        content: messageInput.trim(),
       });
-    }, 2000);
+      setMessages((prev) => [...prev, sent]);
+      setMessageInput('');
+      toast({
+        title: 'Message Sent',
+        description: 'Your message has been delivered.',
+      });
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err.message || 'Failed to send message.',
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -120,47 +82,53 @@ export default function TailorMessagesPage() {
       {/* Conversation List */}
       <Card
         className={cn(
-          'w-full md:w-1/3 md:flex flex-col shadow-lg',
+          'w-full md:w-1/3 md:flex flex-col shadow-lg border-muted/40 bg-background/70 backdrop-blur-sm',
           mobileActive && 'hidden md:flex'
         )}
       >
         <CardHeader className="border-b">
-          <CardTitle className="text-xl">{t('Chats')}</CardTitle>
+          <CardTitle className="text-xl">{t('Atelier Messages')}</CardTitle>
+          <CardDescription>Direct client communication</CardDescription>
         </CardHeader>
-        <ScrollArea>
-          {Object.keys(conversations).map((key) => {
-            const convo = conversations[key];
-            const lastMessage = convo.messages[convo.messages.length - 1];
-            return (
+        <CardContent className="p-0 flex-1">
+          {loading ? (
+            <div className="flex justify-center items-center h-40">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground text-sm">
+              No active conversations found.
+            </div>
+          ) : (
+            <ScrollArea className="h-full">
               <div
-                key={key}
                 className={cn(
-                  'flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/50 border-b',
-                  activeConversation === key && 'bg-muted'
+                  'flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/50 border-b bg-muted/30',
+                  activeReceiverId && 'bg-muted'
                 )}
-                onClick={() => handleSelectConversation(key)}
+                onClick={() => setMobileActive(true)}
               >
                 <Avatar className="h-10 w-10 border">
-                  <AvatarImage src={convo.avatar} alt={convo.name} />
-                  <AvatarFallback>{convo.name.charAt(0)}</AvatarFallback>
+                  <AvatarImage src="/placeholder.png" />
+                  <AvatarFallback>C</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 truncate">
-                  <p className="font-semibold truncate">{convo.name}</p>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {lastMessage.content}
+                  <p className="font-semibold truncate">Active Client</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {messages[messages.length - 1]?.content || 'Start chat'}
                   </p>
                 </div>
               </div>
-            );
-          })}
-        </ScrollArea>
+            </ScrollArea>
+          )}
+        </CardContent>
       </Card>
 
       {/* Conversation View */}
       <Card
-        className={cn('flex-1 flex-col shadow-lg', mobileActive ? 'flex' : 'hidden md:flex')}
+        className={cn('flex-1 flex-col shadow-lg border-muted/40 bg-background/70 backdrop-blur-sm', mobileActive ? 'flex' : 'hidden md:flex')}
       >
-        {currentConversation ? (
+        {activeReceiverId ? (
           <>
             <CardHeader className="border-b flex-row items-center gap-4">
               <Button
@@ -172,69 +140,64 @@ export default function TailorMessagesPage() {
                 <ArrowLeft />
               </Button>
               <div className="flex-1">
-                <CardTitle className="flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-purple-500 to-orange-500 bg-size-200 animate-text-rainbow">
-                  {currentConversation.name}
+                <CardTitle className="flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-purple-500 to-orange-500 animate-text-rainbow">
+                  Client Communication
                 </CardTitle>
                 <CardDescription>
-                  {t('Order')} {currentConversation.order}
+                  Customer ID: {activeReceiverId.slice(0, 8)}
                 </CardDescription>
               </div>
             </CardHeader>
 
             {/* Messages */}
-            <CardContent className="flex-1 p-0">
+            <CardContent className="flex-1 p-0 overflow-hidden">
               <ScrollArea className="h-full p-6">
                 <div className="space-y-6">
-                  {currentConversation.messages.map((message, index) => (
-                    <div
-                      key={index}
-                      className={cn(
-                        'flex items-start gap-4',
-                        message.role === 'tailor' ? 'justify-end' : 'justify-start'
-                      )}
-                    >
-                      {message.role === 'user' && (
-                        <Avatar className="h-10 w-10 border">
-                          <AvatarImage
-                            src={currentConversation.avatar}
-                            alt={currentConversation.name}
-                          />
-                          <AvatarFallback>{currentConversation.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                      )}
+                  {activeMessages.map((message) => {
+                    const isTailor = message.sender_id === user?.id;
+                    return (
                       <div
+                        key={message.id}
                         className={cn(
-                          'max-w-md space-y-2',
-                          message.role === 'tailor' && 'text-right'
+                          'flex items-start gap-4',
+                          isTailor ? 'justify-end' : 'justify-start'
                         )}
                       >
-                        <p className="font-bold text-sm">
-                          {message.role === 'user'
-                            ? currentConversation.name
-                            : t('You')}
-                        </p>
+                        {!isTailor && (
+                          <Avatar className="h-10 w-10 border">
+                            <AvatarImage src="/placeholder.png" alt="Client" />
+                            <AvatarFallback>C</AvatarFallback>
+                          </Avatar>
+                        )}
                         <div
                           className={cn(
-                            'rounded-lg px-4 py-3 text-sm',
-                            message.role === 'tailor'
-                              ? 'bg-primary text-primary-foreground rounded-br-none'
-                              : 'bg-muted rounded-bl-none'
+                            'max-w-md space-y-2',
+                            isTailor && 'text-right'
                           )}
                         >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
+                          <p className="font-bold text-sm">
+                            {isTailor ? t('You') : 'Client'}
+                          </p>
+                          <div
+                            className={cn(
+                              'rounded-lg px-4 py-3 text-sm',
+                              isTailor
+                                ? 'bg-primary text-primary-foreground rounded-br-none'
+                                : 'bg-muted rounded-bl-none'
+                            )}
+                          >
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          </div>
                         </div>
+                        {isTailor && (
+                          <Avatar className="h-10 w-10 border">
+                            <AvatarImage src={user?.profile_image_url || '/placeholder.png'} alt="Tailor" />
+                            <AvatarFallback>T</AvatarFallback>
+                          </Avatar>
+                        )}
                       </div>
-                      {message.role === 'tailor' && (
-                        <Avatar className="h-10 w-10 border">
-                          <AvatarImage
-                            src="https://placehold.co/100x100.png"
-                            alt="Tailor"
-                          />
-                          <AvatarFallback>T</AvatarFallback>
-                        </Avatar>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </ScrollArea>
             </CardContent>
@@ -247,9 +210,10 @@ export default function TailorMessagesPage() {
                   className="flex-1"
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
+                  disabled={sending}
                 />
-                <Button type="submit">
-                  <Send className="mr-2 h-4 w-4" />
+                <Button type="submit" disabled={sending}>
+                  {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                   {t('Send')}
                 </Button>
               </form>

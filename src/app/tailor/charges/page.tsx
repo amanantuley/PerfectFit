@@ -16,12 +16,20 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CircleDollarSign, Save, Loader2, CloudUpload, RefreshCw } from 'lucide-react';
+import { CircleDollarSign, Save, Loader2, RefreshCw } from 'lucide-react';
 import { useTranslation } from '@/context/translation-provider';
 import { useToast } from '@/hooks/use-toast';
-import { chargesData } from '@/lib/charges-data';
 import { useEffect, useState, useTransition } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
+import { platformApi } from '@/lib/api';
+
+const DEFAULT_SERVICES = [
+  { id: 'suit_stitching', name: '2-Piece / 3-Piece Suit Stitching', category: 'Tailoring Services', price: 2500, min: 2000, max: 4000 },
+  { id: 'shirt_stitching', name: 'Custom Shirt Tailoring', category: 'Tailoring Services', price: 800, min: 600, max: 1200 },
+  { id: 'pant_alteration', name: 'Trouser / Pant Length Alteration', category: 'Alterations & Repair', price: 250, min: 150, max: 400 },
+  { id: 'suit_fitting', name: 'Jacket & Blazer Slimming Fit', category: 'Alterations & Repair', price: 650, min: 450, max: 950 },
+  { id: 'dress_hemming', name: 'Evening Gown / Dress Hemming', category: 'Alterations & Repair', price: 450, min: 300, max: 700 },
+];
 
 export default function TailorChargesPage() {
   const { t } = useTranslation();
@@ -29,24 +37,13 @@ export default function TailorChargesPage() {
 
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [isPending, startTransition] = useTransition();
-  const [loaded, setLoaded] = useState(false);
 
-  // ✅ Load existing charges
   useEffect(() => {
-    const stored = localStorage.getItem('tailorPrices');
-    if (stored) {
-      setPrices(JSON.parse(stored));
-    } else {
-      const defaults: Record<string, number> = {};
-      chargesData.forEach((cat) =>
-        cat.services.forEach((s) => (defaults[s.id] = s.price))
-      );
-      setPrices(defaults);
-    }
-    setLoaded(true);
+    const initial: Record<string, number> = {};
+    DEFAULT_SERVICES.forEach((s) => (initial[s.id] = s.price));
+    setPrices(initial);
   }, []);
 
-  // ✅ Handle change
   const handlePriceChange = (id: string, value: string) => {
     const num = Number(value);
     if (!isNaN(num) && num >= 0) {
@@ -54,44 +51,36 @@ export default function TailorChargesPage() {
     }
   };
 
-  // ✅ Save locally (simulate cloud sync)
   const handleSaveChanges = () => {
-    startTransition(() => {
-      localStorage.setItem('tailorPrices', JSON.stringify(prices));
+    startTransition(async () => {
+      try {
+        await platformApi.updateMyTailorProfile({
+          price_range: prices,
+        });
 
-      // 💡 Future-ready cloud sync (Firebase / API)
-      // await fetch('/api/tailor/prices', { method: 'POST', body: JSON.stringify(prices) });
-
-      toast({
-        title: t('✅ Charges Saved!'),
-        description: t('Your latest service prices are stored securely.'),
-      });
+        toast({
+          title: t('✅ Charges Saved!'),
+          description: t('Your service prices are updated in the PostgreSQL database.'),
+        });
+      } catch (err: any) {
+        toast({
+          variant: 'destructive',
+          title: t('Update Failed'),
+          description: err.message || 'Could not update prices.',
+        });
+      }
     });
   };
 
   const handleReset = () => {
-    startTransition(() => {
-      localStorage.removeItem('tailorPrices');
-      const defaults: Record<string, number> = {};
-      chargesData.forEach((cat) =>
-        cat.services.forEach((s) => (defaults[s.id] = s.price))
-      );
-      setPrices(defaults);
-      toast({
-        title: t('🔄 Reset Successful'),
-        description: t('All prices have been restored to default values.'),
-      });
+    const initial: Record<string, number> = {};
+    DEFAULT_SERVICES.forEach((s) => (initial[s.id] = s.price));
+    setPrices(initial);
+    toast({
+      title: t('🔄 Reset Successful'),
+      description: t('Prices reset to default estimates.'),
     });
   };
-
-  if (!loaded) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin mb-3 text-primary" />
-        <p className="text-sm text-muted-foreground">{t('Loading your charges...')}</p>
-      </div>
-    );
-  }
 
   return (
     <motion.div
@@ -103,17 +92,17 @@ export default function TailorChargesPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <CardTitle className="flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-purple-500 to-orange-500 bg-size-200 animate-text-rainbow">
+              <CardTitle className="flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-purple-500 to-orange-500 animate-text-rainbow">
                 <CircleDollarSign className="h-5 w-5 text-teal-500" />
                 {t('Tailor Service Charges')}
               </CardTitle>
               <CardDescription>
-                {t('Set, customize, and manage your tailoring prices.')}
+                {t('Set, customize, and manage your tailoring prices stored directly in PostgreSQL.')}
               </CardDescription>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-              <Button onClick={handleSaveChanges} disabled={isPending} className="flex items-center">
+              <Button onClick={handleSaveChanges} disabled={isPending} className="flex items-center bg-gradient-to-r from-teal-500 via-purple-500 to-orange-500 text-white font-semibold shadow-md">
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -138,86 +127,121 @@ export default function TailorChargesPage() {
         <CardContent>
           <Accordion
             type="multiple"
-            defaultValue={[chargesData[0].id]}
+            defaultValue={['tailoring', 'alterations']}
             className="w-full space-y-2"
           >
-            {chargesData.map((category) => (
-              <AccordionItem key={category.id} value={category.id}>
-                <AccordionTrigger className="text-lg font-semibold">
-                  {t(category.name as any)}
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-5 pt-3">
-                    {category.services.map((service) => (
-                      <motion.div
-                        key={service.id}
-                        className="grid grid-cols-1 md:grid-cols-3 items-end gap-4 rounded-lg border border-border p-4 transition-all hover:bg-muted/30 hover:shadow-glow"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                      >
-                        {/* Service Info */}
-                        <div className="space-y-1">
-                          <h4 className="font-semibold text-foreground">
-                            {t(service.name as any)}
-                          </h4>
-                          <p className="text-sm text-muted-foreground">
-                            {t(service.description as any)}
-                          </p>
-                        </div>
+            <AccordionItem value="tailoring">
+              <AccordionTrigger className="text-lg font-semibold">
+                {t('Custom Stitching & Tailoring')}
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-5 pt-3">
+                  {DEFAULT_SERVICES.filter(s => s.category.includes('Tailoring')).map((service) => (
+                    <motion.div
+                      key={service.id}
+                      className="grid grid-cols-1 md:grid-cols-3 items-end gap-4 rounded-lg border border-border p-4 transition-all hover:bg-muted/30"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <div className="space-y-1">
+                        <h4 className="font-semibold text-foreground">
+                          {service.name}
+                        </h4>
+                        <p className="text-sm text-muted-foreground">
+                          Bespoke custom fitting & stitching
+                        </p>
+                      </div>
 
-                        {/* Editable Price Input */}
-                        <div>
-                          <Label htmlFor={service.id} className="text-sm font-medium">
-                            {t('Your Price')}
-                          </Label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                              ₹
-                            </span>
-                            <Input
-                              id={service.id}
-                              type="number"
-                              min={0}
-                              value={prices[service.id] ?? ''}
-                              onChange={(e) => handlePriceChange(service.id, e.target.value)}
-                              className="mt-1 pl-6"
-                            />
-                          </div>
+                      <div>
+                        <Label htmlFor={service.id} className="text-sm font-medium">
+                          {t('Your Price')}
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                            ₹
+                          </span>
+                          <Input
+                            id={service.id}
+                            type="number"
+                            min={0}
+                            value={prices[service.id] ?? ''}
+                            onChange={(e) => handlePriceChange(service.id, e.target.value)}
+                            className="mt-1 pl-6"
+                          />
                         </div>
+                      </div>
 
-                        {/* Market Range */}
-                        <div>
-                          <p className="text-sm text-muted-foreground">
-                            {t('Market Range')}:{' '}
-                            <span className="font-medium text-foreground">
-                              ₹{service.marketRange.min} - ₹{service.marketRange.max}
-                            </span>
-                          </p>
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          {t('Market Range')}:{' '}
+                          <span className="font-medium text-foreground">
+                            ₹{service.min} - ₹{service.max}
+                          </span>
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="alterations">
+              <AccordionTrigger className="text-lg font-semibold">
+                {t('Alterations & Repairs')}
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-5 pt-3">
+                  {DEFAULT_SERVICES.filter(s => s.category.includes('Alterations')).map((service) => (
+                    <motion.div
+                      key={service.id}
+                      className="grid grid-cols-1 md:grid-cols-3 items-end gap-4 rounded-lg border border-border p-4 transition-all hover:bg-muted/30"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <div className="space-y-1">
+                        <h4 className="font-semibold text-foreground">
+                          {service.name}
+                        </h4>
+                        <p className="text-sm text-muted-foreground">
+                          Precision size adjustments
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label htmlFor={service.id} className="text-sm font-medium">
+                          {t('Your Price')}
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                            ₹
+                          </span>
+                          <Input
+                            id={service.id}
+                            type="number"
+                            min={0}
+                            value={prices[service.id] ?? ''}
+                            onChange={(e) => handlePriceChange(service.id, e.target.value)}
+                            className="mt-1 pl-6"
+                          />
                         </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
+                      </div>
+
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          {t('Market Range')}:{' '}
+                          <span className="font-medium text-foreground">
+                            ₹{service.min} - ₹{service.max}
+                          </span>
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           </Accordion>
         </CardContent>
       </Card>
-
-      <AnimatePresence>
-        {isPending && (
-          <motion.div
-            key="saving"
-            className="text-center p-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <CloudUpload className="mx-auto mb-3 h-8 w-8 animate-pulse text-primary" />
-            <p className="text-muted-foreground">{t('Syncing changes...')}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 }

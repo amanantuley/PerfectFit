@@ -225,7 +225,7 @@ class PaymentResponse(BaseModel):
 
 # ===================== MEASUREMENT SCHEMAS =====================
 class MeasurementCreate(BaseModel):
-    image_url: str
+    image_url: Optional[str] = "manual"
     chest: Optional[float] = None
     waist: Optional[float] = None
     hip: Optional[float] = None
@@ -381,6 +381,7 @@ class SubscriptionResponse(BaseModel):
     id: UUID
     user_id: UUID
     plan_type: str
+    price: float
     status: str
     start_date: datetime
     end_date: datetime

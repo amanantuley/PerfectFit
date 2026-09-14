@@ -33,8 +33,7 @@ import { useTranslation } from '@/context/translation-provider';
 import { useRouter } from 'next/navigation';
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { ordersApi, ApiOrder } from '@/lib/api';
 
 type OrderStatus = 'New' | 'In Progress' | 'Shipped' | 'Completed';
 
@@ -63,19 +62,17 @@ export default function TailorOrdersPage() {
   const [newStatus, setNewStatus] = useState<OrderStatus | ''>('');
   const [isUpdating, setIsUpdating] = useState(false);
 
+  const loadOrders = async () => {
+    try {
+      const data = await ordersApi.list();
+      setOrders(data);
+    } catch (err) {
+      console.error('Error fetching tailor orders:', err);
+    }
+  };
+
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const liveOrders: any[] = [];
-      snapshot.forEach((docSnap) => {
-        liveOrders.push({
-            id: docSnap.id,
-            ...docSnap.data()
-        });
-      });
-      setOrders(liveOrders);
-    });
-    return () => unsubscribe();
+    loadOrders();
   }, []);
 
   const handleOpenDialog = (order: any, type: 'details' | 'status') => {
@@ -91,18 +88,18 @@ export default function TailorOrdersPage() {
     if (!selectedOrder || !newStatus) return;
     setIsUpdating(true);
     try {
-        const orderRef = doc(db, 'orders', selectedOrder.id);
-        await updateDoc(orderRef, { status: newStatus });
-        setIsStatusOpen(false);
-        toast({
-            title: t('Status Updated'),
-            description: `${t('Order')} ${selectedOrder.orderId} ${t('has been updated to')} "${t(newStatus as any)}".`
-        });
+      await ordersApi.updateStatus(selectedOrder.id, newStatus);
+      setIsStatusOpen(false);
+      await loadOrders();
+      toast({
+        title: t('Status Updated'),
+        description: `${t('Order')} ${selectedOrder.orderId || selectedOrder.id} ${t('has been updated to')} "${t(newStatus as any)}".`
+      });
     } catch (error) {
-        console.error('Error updating status', error);
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to update order status.' });
+      console.error('Error updating status', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update order status.' });
     } finally {
-        setIsUpdating(false);
+      setIsUpdating(false);
     }
   };
 

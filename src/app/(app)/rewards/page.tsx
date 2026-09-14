@@ -17,47 +17,97 @@ import {
   Trophy,
   TrendingUp,
   Coins,
-  Clock3,
   ShieldCheck,
   Star,
   CheckCircle,
   Crown,
   ArrowRight,
+  Loader2,
+  Scissors,
+  Truck,
+  Shirt,
+  Percent,
 } from 'lucide-react';
-import { rewards } from '@/lib/rewards-data';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { platformApi, ApiReward } from '@/lib/api';
+
+const AVAILABLE_REWARDS_CATALOG = [
+  {
+    id: 'free-alteration',
+    title: 'Free Alteration Pass',
+    description: 'Get one suit or dress expertly tailored for perfect fit at no extra charge.',
+    points: 100,
+    icon: Scissors,
+  },
+  {
+    id: 'free-express-shipping',
+    title: 'Express Shipping Voucher',
+    description: 'Priority 24-hour door dispatch on your next purchase or rental order.',
+    points: 150,
+    icon: Truck,
+  },
+  {
+    id: 'custom-monogram',
+    title: 'Custom Monogramming',
+    description: 'Personalized initials embroidery on your custom-fitted garments.',
+    points: 200,
+    icon: Shirt,
+  },
+  {
+    id: 'store-discount-500',
+    title: '₹500 Off Store Coupon',
+    description: 'Flat ₹500 discount on any purchase or subscription renewal.',
+    points: 300,
+    icon: Percent,
+  },
+];
 
 export default function RewardsPage() {
   const { toast } = useToast();
-  const [currentPoints, setCurrentPoints] = useState(250);
-  const pointsToNextReward = 300;
-  const [displayPoints, setDisplayPoints] = useState(currentPoints);
+  const [rewardData, setRewardData] = useState<ApiReward | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [redeeming, setRedeeming] = useState<string | null>(null);
 
-  // ✨ Smooth animated counter for point updates
+  const loadRewards = async () => {
+    try {
+      setLoading(true);
+      const data = await platformApi.getRewards();
+      setRewardData(data);
+    } catch (err: any) {
+      console.error('Failed to load rewards:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const duration = 800;
-    const start = displayPoints;
-    const end = currentPoints;
-    const startTime = performance.now();
+    loadRewards();
+  }, []);
 
-    const animate = (time: number) => {
-      const progress = Math.min((time - startTime) / duration, 1);
-      setDisplayPoints(Math.floor(start + (end - start) * progress));
-      if (progress < 1) requestAnimationFrame(animate);
-    };
+  const currentPoints = rewardData ? rewardData.current_balance : 0;
+  const pointsToNextReward = 300;
 
-    requestAnimationFrame(animate);
-  }, [currentPoints]);
-
-  const handleRedeem = (points: number, title: string) => {
+  const handleRedeem = async (points: number, title: string, id: string) => {
     if (points > currentPoints) return;
-    setCurrentPoints((prev) => prev - points);
-    toast({
-      title: '🎉 Reward Redeemed!',
-      description: `You successfully redeemed “${title}”. Keep earning points for more rewards!`,
-    });
+    setRedeeming(id);
+    try {
+      const updated = await platformApi.redeemRewards(points);
+      setRewardData(updated);
+      toast({
+        title: '🎉 Reward Redeemed!',
+        description: `You successfully redeemed “${title}”. Keep earning points for more rewards!`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Redemption Failed',
+        description: err.message || 'Could not redeem reward points.',
+      });
+    } finally {
+      setRedeeming(null);
+    }
   };
 
   const progressPercent = Math.min((currentPoints / pointsToNextReward) * 100, 100);
@@ -69,16 +119,18 @@ export default function RewardsPage() {
     { name: 'Platinum', threshold: 1000, perks: 'Concierge stylist, free express shipping' },
   ];
 
-  const currentTierIndex = tiers.reduce((acc, tier, idx) => (currentPoints >= tier.threshold ? idx : acc), 0);
-  const currentTier = tiers[currentTierIndex];
-  const nextTier = tiers[currentTierIndex + 1];
+  const currentTierName = rewardData?.tier ? rewardData.tier.charAt(0).toUpperCase() + rewardData.tier.slice(1) : 'Silver';
+  const currentTierIndex = tiers.findIndex(t => t.name.toLowerCase() === currentTierName.toLowerCase());
+  const activeTierIndex = currentTierIndex !== -1 ? currentTierIndex : 0;
+  const currentTier = tiers[activeTierIndex];
+  const nextTier = tiers[activeTierIndex + 1];
+  const pointsToNextTier = nextTier ? Math.max(nextTier.threshold - currentPoints, 0) : 0;
   const tierProgress = nextTier
     ? Math.min(
         ((currentPoints - currentTier.threshold) / (nextTier.threshold - currentTier.threshold)) * 100,
         100,
       )
     : 100;
-  const pointsToNextTier = nextTier ? Math.max(nextTier.threshold - currentPoints, 0) : 0;
 
   const STATUS_CARDS = [
     {
@@ -103,9 +155,9 @@ export default function RewardsPage() {
       tone: 'from-amber-500/15 to-orange-500/15',
     },
     {
-      label: 'Velocity',
-      value: '~180 pts/mo',
-      helper: 'Based on last 30 days',
+      label: 'Total Earned',
+      value: (rewardData?.points_earned || 0).toLocaleString(),
+      helper: 'Lifetime earnings',
       icon: TrendingUp,
       tone: 'from-sky-500/15 to-indigo-500/15',
     },
@@ -138,21 +190,6 @@ export default function RewardsPage() {
     },
   ];
 
-  const TIMELINE = [
-    { title: 'Return credited', meta: 'Dec 12 • Order #PF-9921', change: '+120 pts' },
-    { title: 'Tailor session completed', meta: 'Dec 02 • Virtual fitting', change: '+90 pts' },
-    { title: 'Offer redeemed', meta: 'Nov 21 • Diwali Savings', change: '-200 pts' },
-    { title: 'Order delivered', meta: 'Nov 14 • Suit set', change: '+260 pts' },
-  ];
-
-  const handleQuickEarn = (points: number, label: string) => {
-    setCurrentPoints((prev) => prev + points);
-    toast({
-      title: 'Points added',
-      description: `${points} pts added for ${label}. Keep the momentum going!`,
-    });
-  };
-
   return (
     <motion.div
       className="space-y-12 animate-fade-in-up"
@@ -175,21 +212,25 @@ export default function RewardsPage() {
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Star className="h-4 w-4 text-primary" />
-              Better fits earn faster points
+              Database Backed Rewards
             </div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Live balance</p>
               <div className="flex items-center gap-3">
-                <motion.div
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 14 }}
-                  className="text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-500"
-                >
-                  {displayPoints}
-                </motion.div>
+                {loading ? (
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                ) : (
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 14 }}
+                    className="text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-500"
+                  >
+                    {currentPoints}
+                  </motion.div>
+                )}
                 <Badge className="gap-1 bg-gradient-to-r from-fuchsia-500 to-purple-500 text-white shadow-lg">
                   <CheckCircle className="h-4 w-4" /> Redeemable now
                 </Badge>
@@ -201,9 +242,6 @@ export default function RewardsPage() {
               <p className="text-sm font-semibold text-primary">
                 {isNextRewardUnlocked ? 'Unlocked — grab it now!' : `${pointsToNextReward - currentPoints} pts remaining`}
               </p>
-              <Button size="sm" className="bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 text-white hover:opacity-90" onClick={() => handleQuickEarn(50, 'quick bonus')}>
-                Boost +50 pts
-              </Button>
             </div>
           </div>
         </CardHeader>
@@ -254,7 +292,7 @@ export default function RewardsPage() {
                 <Award className="h-4 w-4 text-primary" /> Next reward unlocks at {pointsToNextReward} pts
               </p>
               <p className="text-xs text-muted-foreground">
-                Earn faster via virtual fittings and reviews. Average unlock time: ~10 days at your pace.
+                Earn points automatically with every order and custom alteration request.
               </p>
             </div>
             <div className="flex-1 sm:max-w-xs">
@@ -275,63 +313,33 @@ export default function RewardsPage() {
         </CardContent>
       </Card>
 
-      {/* Earn More + Activity */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 border border-muted/40 bg-background/70 backdrop-blur-sm shadow-lg">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <CardTitle className="text-xl">Earn more points</CardTitle>
-              <CardDescription>Stack quick wins to hit your next tier faster.</CardDescription>
-            </div>
-            <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30">
-              <Sparkles className="h-4 w-4" /> Avg +350 pts/wk members
-            </Badge>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            {EARNING_ACTIONS.map((action) => (
-              <Card key={action.title} className="border border-muted/40 bg-background/70 shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="font-semibold text-foreground">{action.title}</p>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{action.description}</p>
-                    </div>
-                    <Badge className="bg-gradient-to-r from-fuchsia-500 to-purple-500 text-white shadow">+{action.points}</Badge>
+      {/* Earn More */}
+      <Card className="border border-muted/40 bg-background/70 backdrop-blur-sm shadow-lg">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <CardTitle className="text-xl">Earn More Points</CardTitle>
+            <CardDescription>Actions that boost your loyalty points balance.</CardDescription>
+          </div>
+          <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30">
+            <Sparkles className="h-4 w-4" /> Instant Rewards
+          </Badge>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          {EARNING_ACTIONS.map((action) => (
+            <Card key={action.title} className="border border-muted/40 bg-background/70 shadow-sm">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-foreground">{action.title}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{action.description}</p>
                   </div>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between"
-                    onClick={() => handleQuickEarn(action.points, action.title)}
-                  >
-                    {action.cta}
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="border border-muted/40 bg-background/70 backdrop-blur-sm shadow-lg">
-          <CardHeader>
-            <CardTitle className="text-xl">Recent activity</CardTitle>
-            <CardDescription>Transparent ledger of point movements.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {TIMELINE.map((item) => (
-              <div key={item.title} className="flex items-start justify-between gap-3 border border-muted/30 rounded-lg p-3">
-                <div className="space-y-1">
-                  <p className="font-semibold text-foreground flex items-center gap-2">
-                    <Clock3 className="h-4 w-4 text-primary" /> {item.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{item.meta}</p>
+                  <Badge className="bg-gradient-to-r from-fuchsia-500 to-purple-500 text-white shadow">+{action.points}</Badge>
                 </div>
-                <Badge variant="outline" className="bg-primary/5 border-primary/30 text-primary">{item.change}</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* 🎁 Rewards Grid */}
       <section className="space-y-6">
@@ -347,12 +355,15 @@ export default function RewardsPage() {
           </Badge>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {rewards.map((reward, index) => {
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {AVAILABLE_REWARDS_CATALOG.map((reward, index) => {
+            const Icon = reward.icon;
             const canRedeem = currentPoints >= reward.points;
+            const isRedeeming = redeeming === reward.id;
+
             return (
               <motion.div
-                key={reward.title}
+                key={reward.id}
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.08 }}
@@ -364,7 +375,7 @@ export default function RewardsPage() {
 
                   <CardHeader className="flex flex-col space-y-3 py-6">
                     <div className="p-3 bg-primary/10 rounded-full w-max">
-                      <reward.icon className="h-7 w-7 text-primary" />
+                      <Icon className="h-7 w-7 text-primary" />
                     </div>
                     <div className="space-y-1">
                       <CardTitle className="font-semibold text-lg">{reward.title}</CardTitle>
@@ -384,16 +395,18 @@ export default function RewardsPage() {
                       <Badge variant="outline" className="bg-primary/5 border-primary/30">Digital</Badge>
                     </div>
                     <Button
-                      onClick={() => handleRedeem(reward.points, reward.title)}
+                      onClick={() => handleRedeem(reward.points, reward.title, reward.id)}
                       variant={canRedeem ? 'default' : 'secondary'}
-                      disabled={!canRedeem}
+                      disabled={!canRedeem || isRedeeming}
                       className={`w-full transition-all duration-300 ${
                         canRedeem
                           ? 'bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 text-white hover:opacity-90'
                           : 'opacity-70'
                       }`}
                     >
-                      {canRedeem ? (
+                      {isRedeeming ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : canRedeem ? (
                         <>
                           <Sparkles className="mr-2 h-4 w-4" /> Redeem now
                         </>

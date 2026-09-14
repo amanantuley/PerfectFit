@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # ===== DATABASE =====
-    # SQLite makes the application runnable immediately after checkout.  Production
-    # deployments should set DATABASE_URL to their managed PostgreSQL instance.
     DATABASE_URL: str = "sqlite:///./perfectfit.db"
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -29,6 +27,7 @@ class Settings(BaseSettings):
     # ===== RAZORPAY =====
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: str = "rzp_webhook_secret_key"
 
     # ===== EMAIL =====
     SMTP_HOST: str = "smtp.gmail.com"

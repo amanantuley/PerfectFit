@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
-import { Product } from '@/lib/db';
+import { productsApi, ApiProduct } from '@/lib/api';
 import { useApp } from '@/context/app-context';
 import { Search, ShoppingCart, Tag, Filter, Loader2, Star, TrendingUp, ChevronRight, Check } from 'lucide-react';
 import Image from 'next/image';
@@ -18,51 +18,44 @@ export default function StorePage() {
   const { toast } = useToast();
   const { addToCart } = useApp();
   
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [priceRange, setPriceRange] = useState([10000]); // Max price filter
   
-  useEffect(() => {
-    fetchProducts();
-  }, [category, search]);
-
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (category !== 'All') params.append('category', category);
-      if (search) params.append('search', search);
-      
-      const res = await fetch(`/api/products?${params.toString()}`);
-      const data = await res.json();
-      if (data.products) {
-        setProducts(data.products);
-      }
+      const data = await productsApi.list({
+        product_type: category !== 'All' ? category : undefined,
+        search: search || undefined,
+      });
+      setProducts(data);
     } catch (error) {
       console.error('Error fetching products:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load products from store.' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [category, search, toast]);
 
-  const handleAddToCart = (product: Product, purchaseType: 'Buy' | 'Rent', e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent navigating to details page
-    // Using a simplified garment structure for the context to maintain compatibility
-    addToCart({
-      name: product.name,
-      price: product.price,
-      rentPrice: product.rentPrice,
-      type: product.type,
-      image: product.image,
-      dataAiHint: product.dataAiHint,
-    }, purchaseType);
-    toast({
-      title: `Added to cart!`,
-      description: `${product.name} is ready for ${purchaseType.toLowerCase()}.`,
-      action: <Button variant="outline" size="sm" asChild><Link href="/cart">View Cart</Link></Button>
-    });
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  const handleAddToCart = async (product: ApiProduct, purchaseType: 'Buy' | 'Rent', e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await addToCart(product.id, 1, purchaseType.toLowerCase() as 'buy' | 'rent');
+      toast({
+        title: `Added to cart!`,
+        description: `${product.name} is ready for ${purchaseType.toLowerCase()}.`,
+        action: <Button variant="outline" size="sm" asChild><Link href="/cart">View Cart</Link></Button>
+      });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Cart Error', description: err.message || 'Could not add item to cart.' });
+    }
   };
 
   const categories = ['All', 'shirt', 't-shirt', 'jeans', 'suit', 'blazer', 'trousers', 'sherwani', 'kurta'];
@@ -73,7 +66,7 @@ export default function StorePage() {
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-2xl shadow-purple-900/20 bg-black">
         <div className="absolute inset-0 z-0">
-           <Image src="https://placehold.co/1600x400.png" alt="Store banner" fill className="object-cover opacity-50" data-ai-hint="luxury fashion banner"/>
+           <Image src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1600" alt="Store banner" fill className="object-cover opacity-40" priority />
            <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent"></div>
         </div>
         <div className="relative z-10 p-8 sm:p-12 flex flex-col justify-center min-h-[250px]">
@@ -172,11 +165,10 @@ export default function StorePage() {
                     <CardContent className="p-0 relative">
                       <div className="relative aspect-[4/5] w-full overflow-hidden bg-muted/20">
                         <Image 
-                          src={product.image} 
+                          src={product.image_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=800'} 
                           alt={product.name} 
                           fill 
                           className="object-cover transition-transform duration-700 group-hover:scale-110" 
-                          data-ai-hint={product.dataAiHint}
                         />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                            <span className="bg-background/80 backdrop-blur-md px-4 py-2 rounded-full font-semibold text-sm flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
@@ -199,7 +191,7 @@ export default function StorePage() {
                            <Star className="h-3 w-3 fill-amber-500 text-amber-500 mr-1" />
                            <span className="font-medium text-foreground">{product.rating}</span>
                         </div>
-                        <span>({product.reviewCount})</span>
+                        <span>({product.review_count})</span>
                         <span className="mx-1">•</span>
                         <span className="capitalize">{product.type}</span>
                       </div>
@@ -210,10 +202,12 @@ export default function StorePage() {
                             <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Buy New</p>
                             <p className="font-bold text-lg leading-none">₹{product.price.toFixed(2)}</p>
                          </div>
-                         <div className="text-right">
-                            <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Rent</p>
-                            <p className="font-semibold text-purple-400 leading-none">₹{product.rentPrice.toFixed(2)}/day</p>
-                         </div>
+                         {product.rent_price && (
+                           <div className="text-right">
+                              <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Rent</p>
+                              <p className="font-semibold text-purple-400 leading-none">₹{product.rent_price.toFixed(2)}/day</p>
+                           </div>
+                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-2 w-full">
                         <Button 
@@ -224,14 +218,16 @@ export default function StorePage() {
                         >
                           <ShoppingCart className="mr-1.5 h-3.5 w-3.5" /> Buy
                         </Button>
-                        <Button 
-                          size="sm" 
-                          variant="secondary" 
-                          className="w-full text-xs font-semibold"
-                          onClick={(e) => handleAddToCart(product, 'Rent', e)}
-                        >
-                          <Tag className="mr-1.5 h-3.5 w-3.5" /> Rent
-                        </Button>
+                        {product.rent_price && (
+                          <Button 
+                            size="sm" 
+                            variant="secondary" 
+                            className="w-full text-xs font-semibold"
+                            onClick={(e) => handleAddToCart(product, 'Rent', e)}
+                          >
+                            <Tag className="mr-1.5 h-3.5 w-3.5" /> Rent
+                          </Button>
+                        )}
                       </div>
                     </CardFooter>
                   </Card>

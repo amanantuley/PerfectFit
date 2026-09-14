@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { extractBodyMeasurements, type ExtractBodyMeasurementsOutput } from '@/ai/flows/extract-body-measurements';
 import { recommendGarments } from '@/ai/flows/recommend-garments';
-import { garments, Garment } from '@/lib/garments';
+import { productsApi, ApiProduct } from '@/lib/api';
 import { Upload, Loader2, Ruler, ShoppingCart, Shirt, Briefcase, PersonStanding, Hand, Armchair, ChevronRight, Check, Waves, Camera, GitCommitHorizontal, X, Lightbulb, PlayCircle, PlusCircle, History, Video, Tag, Repeat, ShieldCheck, LineChart, Activity, Clock3, Sparkles, TrendingUp, Gauge, Target, Zap } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -178,6 +178,7 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const router = useRouter();
   const { addToCart } = useApp();
+  const [products, setProducts] = useState<ApiProduct[]>([]);
   
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -195,6 +196,10 @@ export default function DashboardPage() {
   const [showWelcomeVideo, setShowWelcomeVideo] = useState(false);
   const [showConsultationDialog, setShowConsultationDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    productsApi.list().then(setProducts).catch(console.error);
+  }, []);
 
   const measurementStateLabel = measurements
     ? 'Ready with latest capture'
@@ -308,13 +313,17 @@ export default function DashboardPage() {
     };
   }, [toast]);
 
-  const handleAddToCart = (garment: Garment, purchaseType: 'Buy' | 'Rent') => {
-    addToCart(garment, purchaseType);
-    toast({
-      title: `Added for ${purchaseType}!`,
-      description: `${garment.name} has been added to your cart.`,
-      action: <Button variant="outline" size="sm" onClick={() => router.push('/cart')}>View Cart</Button>
-    });
+  const handleAddToCart = async (garment: ApiProduct, purchaseType: 'Buy' | 'Rent') => {
+    try {
+      await addToCart(garment.id, 1, purchaseType.toLowerCase() as 'buy' | 'rent');
+      toast({
+        title: `Added for ${purchaseType}!`,
+        description: `${garment.name} has been added to your cart.`,
+        action: <Button variant="outline" size="sm" onClick={() => router.push('/cart')}>View Cart</Button>
+      });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Cart Error', description: err.message || 'Could not add item to cart.' });
+    }
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -472,8 +481,8 @@ export default function DashboardPage() {
     : [];
 
   const garmentsToShow = recommendations
-    ? garments.filter(g => recommendations.includes(g.name))
-    : garments;
+    ? products.filter(g => recommendations.some(r => r.toLowerCase().includes(g.name.toLowerCase()) || g.name.toLowerCase().includes(r.toLowerCase())))
+    : products;
 
   return (
     <div id="welcome-step" className="space-y-8 animate-fade-in-up">
@@ -1091,30 +1100,35 @@ export default function DashboardPage() {
         
         {!isRecommending && garmentsToShow.length > 0 && (
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {garmentsToShow.map((garment) => (
-              <Card key={garment.name} className="overflow-hidden transition-all hover:shadow-glow hover:-translate-y-1 flex flex-col">
-                <CardContent className="p-0">
-                  <div className="relative aspect-square w-full">
-                    <Image src={garment.image} alt={garment.name} fill className="object-cover" data-ai-hint={garment.dataAiHint} />
-                  </div>
-                </CardContent>
-                <CardHeader>
-                  <CardTitle>{garment.name}</CardTitle>
-                  <CardDescription className="flex items-center gap-2">
-                    {garment.type === 'shirt' ? <Shirt className="h-4 w-4" /> : <Briefcase className="h-4 w-4" />}
-                    <span className="capitalize">{garment.type}</span>
-                  </CardDescription>
-                </CardHeader>
-                <CardFooter className="flex flex-col gap-2 mt-auto">
-                  <Button className="w-full" onClick={() => handleAddToCart(garment, 'Buy')}>
-                    <Tag className="mr-2 h-4 w-4" /> Buy for ₹{garment.price.toFixed(2)}
-                  </Button>
-                  <Button variant="secondary" className="w-full" onClick={() => handleAddToCart(garment, 'Rent')}>
-                    <Repeat className="mr-2 h-4 w-4" /> Rent for ₹{garment.rentPrice.toFixed(2)}
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+            {garmentsToShow.map((garment) => {
+              const img = garment.image_url || (garment as any).image || "https://placehold.co/600x600.png";
+              const rentP = garment.rent_price ?? (garment as any).rentPrice ?? (garment.price * 0.25);
+              const pType = garment.product_type || (garment as any).type || 'garment';
+              return (
+                <Card key={garment.id || garment.name} className="overflow-hidden transition-all hover:shadow-glow hover:-translate-y-1 flex flex-col">
+                  <CardContent className="p-0">
+                    <div className="relative aspect-square w-full">
+                      <Image src={img} alt={garment.name} fill className="object-cover" />
+                    </div>
+                  </CardContent>
+                  <CardHeader>
+                    <CardTitle>{garment.name}</CardTitle>
+                    <CardDescription className="flex items-center gap-2">
+                      {pType.toLowerCase().includes('shirt') ? <Shirt className="h-4 w-4" /> : <Briefcase className="h-4 w-4" />}
+                      <span className="capitalize">{pType}</span>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardFooter className="flex flex-col gap-2 mt-auto">
+                    <Button className="w-full" onClick={() => handleAddToCart(garment, 'Buy')}>
+                      <Tag className="mr-2 h-4 w-4" /> Buy for ₹{garment.price.toFixed(2)}
+                    </Button>
+                    <Button variant="secondary" className="w-full" onClick={() => handleAddToCart(garment, 'Rent')}>
+                      <Repeat className="mr-2 h-4 w-4" /> Rent for ₹{rentP.toFixed(2)}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

@@ -132,8 +132,7 @@ const getStatusConfig = (status: string) => {
   }
 };
 
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { ordersApi, ApiOrder } from '@/lib/api';
 
 export default function TailorDashboard() {
   const { t } = useTranslation();
@@ -162,39 +161,20 @@ export default function TailorDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // 🔹 Real-time New Orders from Firestore
+  // 🔹 Fetch Orders from PostgreSQL API
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(10));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const orders: any[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        orders.push({
-            orderId: data.orderId,
-            customer: data.customerName,
-            amount: data.amount,
-            status: data.status,
-            dueDate: data.dueDate,
-            isPriority: data.isPriority,
-            raw: data
-        });
-      });
-      
-      // Toast on new incoming order if the state already had items (prevents initial load toast storm)
-      setRecentOrders(prev => {
-          if (prev.length > 0 && orders.length > 0 && prev[0].orderId !== orders[0].orderId) {
-             toast({
-                title: '🧵 ' + t('New Order Received!'),
-                description: `${t('Order')} ${orders[0].orderId} ${t('from')} ${orders[0].customer} ${t('for')} ₹${orders[0].amount.toFixed(2)}`,
-              });
-          }
-          return orders;
-      });
-    });
-
-    return () => unsubscribe();
-  }, [t, toast]);
+    ordersApi.list().then(orders => {
+      setRecentOrders(orders.slice(0, 10).map(data => ({
+        orderId: data.id,
+        customer: (data as any).customerName || (data as any).user?.full_name || 'Customer',
+        amount: data.total_amount || 0,
+        status: data.status,
+        dueDate: (data as any).dueDate || '2026-09-20',
+        isPriority: false,
+        raw: data
+      })));
+    }).catch(console.error);
+  }, []);
 
   const totalEarnings = useMemo(
     () => earningsData.reduce((sum, d) => sum + d.earnings, 0),

@@ -28,17 +28,16 @@ import { Separator } from '@/components/ui/separator';
 import { addDays, format } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { motion } from 'framer-motion';
-import Image from 'next/image';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
-const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
+const MapPlaceholder = ({ status }: { status: string }) => {
   const progressPercentage = useMemo(() => {
-    switch (status) {
-      case 'Shipped': return 50;
-      case 'Out for Delivery': return 80;
-      case 'Delivered': return 100;
-      default: return 0;
+    switch (status.toLowerCase()) {
+      case 'shipped': return 50;
+      case 'out for delivery': return 80;
+      case 'delivered': return 100;
+      default: return 20;
     }
   }, [status]);
 
@@ -47,9 +46,8 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
   const routePath = "M 50 150 C 150 50, 350 50, 450 150";
 
   return (
-    <div className="relative w-full h-64 md:h-96 bg-muted rounded-lg overflow-hidden border border-muted/30 backdrop-blur-sm">
+    <div className="relative w-full h-64 md:h-96 bg-muted/40 rounded-2xl overflow-hidden border border-white/10 backdrop-blur-sm">
       <svg width="100%" height="100%" viewBox="0 0 500 200" xmlns="http://www.w3.org/2000/svg">
-        {/* Grid */}
         <defs>
           <pattern id="smallGrid" width="10" height="10" patternUnits="userSpaceOnUse">
             <path d="M 10 0 L 0 0 0 10" fill="none" stroke="hsl(var(--border))" strokeWidth="0.4" />
@@ -61,7 +59,6 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
         </defs>
         <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Route Path */}
         <path
           d={routePath}
           stroke="hsl(var(--primary))"
@@ -70,7 +67,6 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
           strokeDasharray="6 6"
           className="opacity-30"
         />
-        {/* Progress Path */}
         <path
           d={routePath}
           stroke="hsl(var(--primary))"
@@ -82,7 +78,6 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
             transition: 'stroke-dashoffset 1.5s ease-in-out',
           }}
         />
-        {/* Truck (animated along path) */}
         {progressPercentage > 0 && (
           <motion.g
             initial={{ offsetDistance: '0%' }}
@@ -99,13 +94,11 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
           </motion.g>
         )}
 
-        {/* Start */}
         <g transform="translate(50, 150)">
           <circle r="10" fill="hsl(var(--primary))" opacity="0.15" />
           <circle r="5" fill="hsl(var(--primary))" />
           <Package x="-8" y="-22" width="16" height="16" className="text-primary" />
         </g>
-        {/* End */}
         <g transform="translate(450, 150)">
           <circle r="10" fill="hsl(var(--primary))" opacity="0.15" />
           <circle r="5" fill="hsl(var(--primary))" />
@@ -116,21 +109,18 @@ const MapPlaceholder = ({ status }: { status: Order['status'] }) => {
   );
 };
 
-// ✅ Step Definitions
 const trackingSteps = [
-  { status: 'Confirmed', description: 'Your order has been confirmed and sent to the tailor.', icon: CheckCircle },
-  { status: 'Processing', description: 'Your tailor is crafting your custom fit.', icon: Scissors },
-  { status: 'Shipped', description: 'Your outfit has left our warehouse.', icon: Truck },
-  { status: 'Out for Delivery', description: 'Your parcel is on its way to you.', icon: Home },
-  { status: 'Delivered', description: 'Delivered successfully. Enjoy your fit!', icon: Package },
+  { status: 'pending', label: 'Confirmed', description: 'Your order has been confirmed and registered.', icon: CheckCircle },
+  { status: 'processing', label: 'Processing', description: 'Your tailor is crafting your custom fit.', icon: Scissors },
+  { status: 'shipped', label: 'Shipped', description: 'Your outfit has left our atelier.', icon: Truck },
+  { status: 'delivered', label: 'Delivered', description: 'Delivered successfully. Enjoy your fit!', icon: Package },
 ];
 
-const getStepIndex = (status: Order['status']): number => {
-  switch (status) {
-    case 'Processing': return 1;
-    case 'Shipped': return 2;
-    case 'Out for Delivery': return 3;
-    case 'Delivered': return 4;
+const getStepIndex = (status: string): number => {
+  switch (status.toLowerCase()) {
+    case 'processing': return 1;
+    case 'shipped': return 2;
+    case 'delivered': return 3;
     default: return 0;
   }
 };
@@ -140,25 +130,19 @@ export default function TrackOrderPage() {
   const { orders } = useApp();
   const orderId = params.orderId as string;
   const [order, setOrder] = useState<Order | undefined>();
-  const [currentStep, setCurrentStep] = useState(0);
-  const eta = useMemo(() => (order ? addDays(new Date(order.date), 10) : null), [order]);
 
   useEffect(() => {
-    const foundOrder = orders.find(o => o.id === orderId);
+    const foundOrder = orders.find(o => o.id === orderId || o.id.startsWith(orderId));
     setOrder(foundOrder);
-    if (foundOrder) setCurrentStep(getStepIndex(foundOrder.status));
   }, [orderId, orders]);
 
-  const getStepDate = (orderDate: string, stepIndex: number): string => {
-    const baseDate = new Date(orderDate);
-    if (isNaN(baseDate.getTime())) return 'Pending';
-    return format(addDays(baseDate, stepIndex * 2), 'PPP, p');
-  };
+  const currentStep = useMemo(() => (order ? getStepIndex(order.status) : 0), [order]);
+  const eta = useMemo(() => (order ? addDays(new Date(order.created_at), 10) : null), [order]);
 
-  if (!order)
+  if (!order) {
     return (
-      <div className="flex flex-col items-center justify-center h-[80vh]">
-        <Card className="p-8 w-full max-w-md text-center shadow-lg">
+      <div className="flex flex-col items-center justify-center h-[70vh]">
+        <Card className="p-8 w-full max-w-md text-center shadow-lg border-white/10">
           <CardHeader>
             <CardTitle className="text-2xl font-bold">Order Not Found</CardTitle>
             <CardDescription>
@@ -173,56 +157,50 @@ export default function TrackOrderPage() {
         </Card>
       </div>
     );
+  }
 
-  // 🚫 Handle Returned/Canceled Orders
-  if (['Returned', 'Canceled'].includes(order.status))
+  if (['cancelled', 'returned'].includes(order.status.toLowerCase())) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Card className="shadow-lg">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <Card className="shadow-lg border-white/10">
           <CardHeader>
-            <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 animate-text-rainbow">
+            <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-500 via-pink-500 to-red-500">
               Order Status
             </CardTitle>
-            <CardDescription>Order ID: {order.id}</CardDescription>
+            <CardDescription>Order ID: #{order.id}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Alert variant={order.status === 'Canceled' ? 'destructive' : 'default'}>
+          <CardContent className="space-y-4">
+            <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Order {order.status}</AlertTitle>
               <AlertDescription>
-                This order has been {order.status.toLowerCase()} and is no longer being tracked.
+                This order has been {order.status.toLowerCase()} and active tracking has concluded.
               </AlertDescription>
             </Alert>
-            <Button asChild className="mt-6">
+            <Button asChild>
               <Link href="/orders">Back to My Orders</Link>
             </Button>
           </CardContent>
         </Card>
       </motion.div>
     );
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
+      transition={{ duration: 0.5 }}
       className="space-y-8 animate-fade-in-up"
     >
-      {/* Hero / Header */}
-      <Card className="shadow-xl border border-muted/30 backdrop-blur-md">
+      <Card className="shadow-xl border border-white/10 backdrop-blur-md">
         <CardHeader className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
             <div>
-              <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 animate-text-rainbow">
-                Track Your Order
+              <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500">
+                Track Order
               </CardTitle>
-              <CardDescription>
-                Order ID: {order.id}
-              </CardDescription>
+              <CardDescription>Order ID: #{order.id}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="gap-1 bg-primary/10 border-primary/30 text-primary"><ShieldCheck className="h-4 w-4" /> Insured shipping</Badge>
@@ -230,8 +208,13 @@ export default function TrackOrderPage() {
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[{ label: 'Placed', value: format(new Date(order.date), 'PPP'), icon: Calendar }, { label: 'Status', value: order.status, icon: Info }, { label: 'Type', value: order.type, icon: Package }, { label: 'Total', value: `₹${order.price?.toLocaleString('en-IN')}`, icon: Receipt }].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl border border-muted/30 bg-background/70 px-4 py-3 shadow-sm">
+            {[
+              { label: 'Placed', value: format(new Date(order.created_at), 'PPP'), icon: Calendar },
+              { label: 'Status', value: order.status.toUpperCase(), icon: Info },
+              { label: 'Payment', value: order.payment_status.toUpperCase(), icon: Package },
+              { label: 'Total', value: `₹${order.final_amount.toFixed(2)}`, icon: Receipt },
+            ].map(({ label, value, icon: Icon }) => (
+              <div key={label} className="flex items-center gap-3 rounded-xl border border-white/10 bg-background/70 px-4 py-3 shadow-sm">
                 <span className="p-2 rounded-full bg-primary/10"><Icon className="h-4 w-4 text-primary" /></span>
                 <div className="leading-tight">
                   <p className="text-xs text-muted-foreground">{label}</p>
@@ -241,14 +224,13 @@ export default function TrackOrderPage() {
             ))}
           </div>
         </CardHeader>
-        <CardContent className="space-y-10">
+        <CardContent className="space-y-8">
           <MapPlaceholder status={order.status} />
           <Separator />
 
-          {/* Delivery Status timeline */}
           <div>
-            <h3 className="text-xl font-bold mb-6">Delivery Status</h3>
-            <div className="relative space-y-10">
+            <h3 className="text-xl font-bold mb-6">Delivery Progress</h3>
+            <div className="relative space-y-8">
               <div className="absolute left-4 top-4 bottom-4 w-0.5 bg-border" />
               {trackingSteps.map((step, index) => (
                 <div key={step.status} className="flex items-start gap-4 pl-12 relative">
@@ -260,19 +242,13 @@ export default function TrackOrderPage() {
                         : 'bg-muted text-muted-foreground'
                     )}
                   >
-                    <step.icon className="h-5 w-5" />
+                    <step.icon className="h-4 w-4" />
                   </div>
                   <div>
-                    <p
-                      className={cn(
-                        'font-semibold',
-                        index <= currentStep ? 'text-foreground' : 'text-muted-foreground'
-                      )}
-                    >
-                      {step.status}
+                    <p className={cn('font-semibold', index <= currentStep ? 'text-foreground' : 'text-muted-foreground')}>
+                      {step.label}
                     </p>
                     <p className="text-sm text-muted-foreground">{step.description}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{getStepDate(order.date, index)}</p>
                   </div>
                 </div>
               ))}
@@ -280,96 +256,6 @@ export default function TrackOrderPage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Summary and Shipment Details */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Order Summary */}
-        <Card className="lg:col-span-2 border border-muted/30 bg-background/70 backdrop-blur-sm shadow-lg">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <CardTitle className="text-xl">Order Summary</CardTitle>
-              <CardDescription>Item details and customization notes.</CardDescription>
-            </div>
-            <Button variant="outline" className="gap-2" onClick={() => {
-              const doc = new jsPDF();
-              const pageWidth = doc.internal.pageSize.getWidth();
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(18);
-              doc.text('PerfectFit - Order Invoice', 14, 18);
-              doc.setFontSize(10);
-              doc.setFont('helvetica', 'normal');
-              doc.text(`Order ID: ${order.id}`, 14, 26);
-              doc.text(`Date: ${format(new Date(order.date), 'PPP')}`, 14, 32);
-              (doc as any).autoTable({ startY: 42, head: [['Item', 'Type', 'Price']], body: [[order.item, order.type, `₹${order.price?.toLocaleString('en-IN')}`]], headStyles: { fillColor: [143, 88, 240] } });
-              const lastY = (doc as any).lastAutoTable.finalY + 8;
-              doc.setFont('helvetica', 'bold');
-              doc.text('Total', pageWidth - 60, lastY);
-              doc.text(`₹${order.price?.toLocaleString('en-IN')}`, pageWidth - 20, lastY, { align: 'right' });
-              if (order.customizationNote) {
-                doc.setFont('helvetica', 'bold');
-                doc.text('Customization Notes', 14, lastY + 12);
-                doc.setFont('helvetica', 'normal');
-                doc.text(order.customizationNote, 14, lastY + 18, { maxWidth: pageWidth - 28 });
-              }
-              doc.save(`PerfectFit-Invoice-${order.id}.pdf`);
-            }}>
-              <FileDown className="h-4 w-4" /> Download invoice
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="h-16 w-16 rounded-md overflow-hidden border bg-muted/20">
-                {/* decorative image if available */}
-                <Image src={order.image} alt={order.item} width={64} height={64} className="object-cover h-full w-full" />
-              </div>
-              <div className="space-y-1">
-                <p className="font-semibold text-foreground">{order.item}</p>
-                <p className="text-sm text-muted-foreground">{order.type} • Placed {format(new Date(order.date), 'PPP')}</p>
-              </div>
-            </div>
-            {order.customizationNote && (
-              <div className="rounded-lg border border-muted/30 p-3 bg-muted/10">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Customization</p>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{order.customizationNote}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Shipment Details */}
-        <Card className="border border-muted/30 bg-background/70 backdrop-blur-sm shadow-lg">
-          <CardHeader>
-            <CardTitle className="text-xl">Shipment details</CardTitle>
-            <CardDescription>Courier and delivery information.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm"><Truck className="h-4 w-4 text-primary" /> Carrier</div>
-              <p className="text-sm font-medium">Perfect Logistics</p>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm"><MapPin className="h-4 w-4 text-primary" /> Destination</div>
-              <p className="text-sm font-medium">Your saved address</p>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm"><Clock className="h-4 w-4 text-primary" /> ETA</div>
-              <p className="text-sm font-medium">{eta ? format(eta, 'PPP') : '—'}</p>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">Need help with delivery?</p>
-              <div className="flex gap-2">
-                <Button asChild variant="outline" size="sm" className="gap-1">
-                  <Link href="/messages"><MessageCircle className="h-4 w-4" /> Chat</Link>
-                </Button>
-                <Button asChild size="sm" className="gap-1 bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 text-white">
-                  <Link href="/contact">Contact support</Link>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </motion.div>
   );
 }

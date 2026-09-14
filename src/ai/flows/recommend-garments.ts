@@ -10,7 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { garments } from '@/lib/garments';
+import { productsApi } from '@/lib/api';
 import { type ExtractBodyMeasurementsOutput } from './extract-body-measurements';
 
 export type RecommendGarmentsInput = ExtractBodyMeasurementsOutput;
@@ -65,28 +65,18 @@ const recommendGarmentsFlow = ai.defineFlow(
   },
   async (measurements) => {
     try {
-      const garmentList = JSON.stringify(garments.map(g => ({ name: g.name, type: g.type })));
+      const products = await productsApi.list().catch(() => []);
+      const garmentList = JSON.stringify(products.map(g => ({ name: g.name, type: g.product_type })));
       const { output } = await prompt({ measurements, garmentList });
       return output!;
     } catch (error: any) {
       console.warn("AI Garment Recommendation Flow failed, using rule-based fallback. Error:", error.message || error);
       
-      // Rule-based fallback recommendations from the garments catalog
-      const recommendations: string[] = [];
-      
-      // Let's recommend items based on type or simple heuristics
-      if (measurements.chest > 90) {
-        recommendations.push("Classic White Oxford Shirt", "Casual Black Linen Shirt");
-      } else {
-        recommendations.push("Blue Striped Poplin Shirt", "Basic Crew Neck T-Shirt");
-      }
-      
-      if (measurements.waist > 80) {
-        recommendations.push("Khaki Cotton Chinos", "Navy Slim-Fit Trousers");
-      } else {
-        recommendations.push("Cream Linen Trousers");
-      }
-      
+      const recommendations: string[] = [
+        "Bespoke Italian Wool Suit",
+        "Classic White Oxford Shirt",
+        "Navy Slim-Fit Trousers"
+      ];
       return { recommendations };
     }
   }

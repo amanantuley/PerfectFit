@@ -1,6 +1,6 @@
-
 'use client';
 
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -9,6 +9,24 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { ShoppingCart, Loader2, Trash2, CalendarDays, Edit, Zap, MapPin, Tag, ShieldCheck, Check } from 'lucide-react';
+import Image from 'next/image';
+import { Separator } from '@/components/ui/separator';
+import { useSubscription } from '@/context/subscription-provider';
+import { Badge } from '@/components/ui/badge';
+import { addDays, format } from 'date-fns';
+import { useApp, CartItem } from '@/context/app-context';
+import { useAuth } from '@/hooks/use-auth';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { productsApi, ordersApi, paymentsApi, platformApi, ApiProduct, ApiTailor } from '@/lib/api';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -17,804 +35,447 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
-import { ShoppingCart, Loader2, Wallet, ArrowLeft, Download, Trash2, CalendarDays, Edit, Zap, MapPin, Tag } from 'lucide-react';
-import Image from 'next/image';
-import { useFormState, useFormStatus } from 'react-dom';
-import React, { useEffect, useRef, useState } from 'react';
-import { submitOrder } from './actions';
-import { tailors } from '@/lib/tailors';
-import { Separator } from '@/components/ui/separator';
-import { useSubscription } from '@/context/subscription-provider';
-import { Badge } from '@/components/ui/badge';
-import { addDays, format } from 'date-fns';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { useApp } from '@/context/app-context';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { CartItem } from '@/context/app-context';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { cn } from '@/lib/utils';
-
-const initialState = {
-  message: '',
-  error: false,
-  data: null
-};
 
 const EXPRESS_DELIVERY_FEE = 250;
 const VALID_COUPON = 'PERFECT10';
 const COUPON_DISCOUNT_PERCENTAGE = 10;
 
-function SubmitButton({ disabled }: { disabled: boolean }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" className="w-full" size="lg" disabled={pending || disabled}>
-      {pending ? (
-        <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Confirming Order...
-        </>
-      ) : (
-        'Proceed to Payment'
-      )}
-    </Button>
-  );
-}
-
-const GooglePayIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">
-      <path d="M22.5 10.1c0-.7-.1-1.4-.2-2.1H12v3.9h5.9c-.3 1.3-1 2.4-2.1 3.2v2.6h3.4c2-1.8 3.1-4.5 3.1-7.6z" fill="#4285F4"></path>
-      <path d="M12 23c3.2 0 5.9-1.1 7.9-2.9l-3.4-2.6c-1.1.7-2.4 1.1-3.9 1.1-3.3 0-6.2-2.2-7.2-5.2H1.3v2.7C3.3 20.1 7.3 23 12 23z" fill="#34A853"></path>
-      <path d="M4.8 13.8c-.2-.7-.2-1.4 0-2.1V9.1H1.3c-.8 1.6-1.3 3.4-1.3 5.4s.5 3.8 1.3 5.4l3.5-2.7z" fill="#FBBC05"></path>
-      <path d="M12 4.2c1.7 0 3.3.6 4.5 1.8l3-3C17.9.6 15.2 0 12 0 7.3 0 3.3 2.9 1.3 6.9l3.5 2.7c1-3 3.9-5.4 7.2-5.4z" fill="#EA4335"></path>
-      <path d="M0 0h24v24H0z" fill="none"></path>
-    </svg>
-);
-
-const RazorpayIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 256 256" fill="currentColor">
-      <path d="M187.1 201.8h-32.9l-11.4 20.3h-34.9l43.2-75.1h32.2l-21.6 38-1.5 2.7 27-44.1h32.9L187.1 201.8zm-44.2-61.1l-14.8 26h28.9l-14.1-26zM224 85.5c-4.6-2-9.6-3.2-15-3.8V53h-32.2v28.7h-18.7V53h-32.2v28.7h-18.7V53H75v32.5a43.5 43.5 0 0 0-15 3.8L32 30.2 0 85.5l54.8 24.8a43.5 43.5 0 0 0-3.8 15v18.7H22.2V176h28.8v18.7H22.2v32.2h28.8V256l55.3-32 55.3 32v-28.8h28.8v-32.2h-28.8V176h28.8v-32.2h-28.8v-18.7c0-5.4-1.2-10.4-3.8-15L256 85.5 224 30.2l-54.8 24.8c-4.6-2-9.6-3.2-15-3.8z"/>
-    </svg>
-);
-
-const CreditCardIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
-        <rect width="20" height="14" x="2" y="5" rx="2"/>
-        <line x1="2" x2="22" y1="10" y2="10"/>
-    </svg>
-);
-
-const PaypalIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M8.32,18.18,8,19.89a.57.57,0,0,0,.6.63h3.33a.56.56,0,0,0,.55-.42l.52-2.73a.83.83,0,0,1,.81-.67h.17c3.12,0,5.75-2.31,6-5.43.22-2.86-1.63-5-4.25-5.38a.56.56,0,0,0-.61.59l-.31,1.87a.82.82,0,0,1-.79.66H14c-1.51,0-2.82.68-3.48,1.87L9,15.11A.83.83,0,0,1,8.32,18.18Z" fill="#253b80"></path>
-        <path d="M12.39,3.23h-4a.56.56,0,0,0-.55.42L4.36,18.82a.56.56,0,0,0,.55.7H8.87a.56.56,0,0,0,.55-.42L10,15.63a.82.82,0,0,1,.8-.66h.17c3.84,0,6.67-2.67,6.91-6.2.22-3.32-2.11-5.89-5.35-6.16A.56.56,0,0,0,12.39,3.23Z" fill="#179bd7"></path>
-        <path d="M4.36,18.82,2,4.27A.56.56,0,0,0,1.41,3.7L1.13,3.84a.56.56,0,0,0-.41.67L4,19.51a.57.57,0,0,0,.56.41H8.87a.56.56,0,0,0,.55-.42L9.84,17a.84.84,0,0,1-.74-1,.82.82,0,0,0-.73.13L4.91,18.4a.56.56,0,0,1-.55.42Z" fill="#222d65"></path>
-    </svg>
-);
-
-const ApplePayIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19.39,14.73a5.3,5.3,0,0,1-2.2-1.37,5.56,5.56,0,0,1-1.3-2.12,4.06,4.06,0,0,1,1-2.87,4.32,4.32,0,0,1,2.83-1.39,1,1,0,0,1,.84.18,1,1,0,0,1,.35.78,4.5,4.5,0,0,1-.58,2.51,5,5,0,0,1-1.78,2.15C18,13.68,17.41,14.8,19.39,14.73Zm-6.52,2.05a4.87,4.87,0,0,1-2.31,1.38,4.42,4.42,0,0,1-2.73-.2,4.71,4.71,0,0,1-1.89-1.5,10.15,10.15,0,0,1-1.88-3.4,6.29,6.29,0,0,1,.83-4.11,5.2,5.2,0,0,1,2-2,4.48,4.48,0,0,1,2.91-.7,4.28,4.28,0,0,1,2.39.73,1.13,1.13,0,0,1,.51.81,1,1,0,0,1-.6.94,3,3,0,0,0-1.72-.48,3.22,3.22,0,0,0-2.22.7,4,4,0,0,0-1.4,2,6.48,6.48,0,0,0-.24,2.9,4.45,4.45,0,0,0,1.44,3.06,3.62,3.62,0,0,0,2.4.92,4.36,4.36,0,0,0,2.1-.53,1,1,0,0,1,1.17.84A.94.94,0,0,1,12.87,16.78Z" />
-    </svg>
-);
-
-const PerfectPayIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
-        <path d="M17 4H7C5.34315 4 4 5.34315 4 7V17C4 18.6569 5.34315 20 7 20H17C18.6569 20 20 18.6569 20 17V7C20 5.34315 18.6569 4 17 4Z"/>
-        <path d="M12 14.5a2.5 2.5 0 0 0 0-5H10v5h2Z"/>
-        <path d="M10 9.5V7"/>
-    </svg>
-);
-
-import { db, auth } from '@/lib/firebase';
-import { doc, getDoc, collection, setDoc, addDoc } from 'firebase/firestore';
-
 export default function CartPage() {
   const { toast } = useToast();
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
-  const [state, formAction] = useFormState(submitOrder, initialState);
-  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
-  const [submittedData, setSubmittedData] = useState<any>(null);
-  const [isCustomizeDialogOpen, setIsCustomizeDialogOpen] = useState(false);
-  const [currentItemToCustomize, setCurrentItemToCustomize] = useState<CartItem | null>(null);
+  const { user } = useAuth();
+  const { cart, removeFromCart, clearCart, updateCartItem, cartLoading } = useApp();
+  const { activePlan, discount: subscriptionDiscount } = useSubscription();
+
+  const [productMap, setProductMap] = useState<Record<string, ApiProduct>>({});
+  const [tailors, setTailors] = useState<ApiTailor[]>([]);
+  const [selectedTailor, setSelectedTailor] = useState<string>('');
   const [deliveryOption, setDeliveryOption] = useState<'standard' | 'express'>('standard');
-  const [nearbyTailors, setNearbyTailors] = useState<any[]>([]);
-  const [isLocating, setIsLocating] = useState(true);
   const [couponCode, setCouponCode] = useState('');
   const [couponDiscount, setCouponDiscount] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [userUid, setUserUid] = useState<string | null>(null);
-  const [aiMeasurements, setAiMeasurements] = useState<any | null>(null);
+  // Address state
+  const [address, setAddress] = useState(user?.address || '123 Fashion Ave');
+  const [city, setCity] = useState(user?.city || 'Mumbai');
+  const [state, setState] = useState(user?.state || 'Maharashtra');
+  const [postalCode, setPostalCode] = useState(user?.postal_code || '400001');
 
-  const { activePlan, discount: subscriptionDiscount } = useSubscription();
-  const { addMultipleOrders, cart, removeFromCart, clearCart, updateCartItemNote } = useApp();
+  // Customization dialog state
+  const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  const [activeItem, setActiveItem] = useState<CartItem | null>(null);
+  const [customNote, setCustomNote] = useState('');
 
-  useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
-        if (user) {
-            setUserUid(user.uid);
-            // Fetch latest AI measurements
-            const userRef = doc(db, 'users', user.uid);
-            const docSnap = await getDoc(userRef);
-            if (docSnap.exists() && docSnap.data().measurements?.length > 0) {
-                const measurements = docSnap.data().measurements;
-                setAiMeasurements(measurements[measurements.length - 1]);
-            }
-        }
-    });
-    return () => unsubscribeAuth();
-  }, []);
+  // Fetch product details for items in cart
+  const loadProductDetails = useCallback(async () => {
+    const missingProductIds = cart.map(i => i.product_id).filter(id => !productMap[id]);
+    if (missingProductIds.length === 0) return;
 
-  // Live Location: Fetch user's actual location and reverse-geocode
-  useEffect(() => {
-    setIsLocating(true);
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords;
-            // Reverse geocode using free Nominatim API
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-            const data = await res.json();
-            const city = data.address.city || data.address.town || data.address.village || 'Your Location';
-            
-            // Generate tailors based on actual location
-            const localTailors = [
-              { id: '1', name: 'Elite Fits (Live Local)', location: `${city} Downtown` },
-              { id: '2', name: 'Master Stitch', location: `${city} Westside` },
-              { id: '3', name: 'Perfect Seam', location: `${city} East` }
-            ];
-            setNearbyTailors(localTailors);
-          } catch (error) {
-            console.error("Geocoding failed", error);
-            // Fallback
-            setNearbyTailors([...tailors].sort(() => Math.random() - 0.5));
-          } finally {
-            setIsLocating(false);
-          }
-        },
-        (error) => {
-          console.warn("Geolocation denied or failed", error);
-          setNearbyTailors([...tailors].sort(() => Math.random() - 0.5));
-          setIsLocating(false);
-        }
-      );
-    } else {
-      setNearbyTailors([...tailors].sort(() => Math.random() - 0.5));
-      setIsLocating(false);
+    const newMap = { ...productMap };
+    for (const pid of Array.from(new Set(missingProductIds))) {
+      try {
+        const prod = await productsApi.get(pid);
+        newMap[pid] = prod;
+      } catch (e) {
+        console.error('Failed to fetch product', pid, e);
+      }
+    }
+    setProductMap(newMap);
+  }, [cart, productMap]);
+
+  // Fetch tailors
+  const loadTailors = useCallback(async () => {
+    try {
+      const data = await platformApi.listTailors();
+      setTailors(data);
+      if (data.length > 0) setSelectedTailor(data[0].id);
+    } catch (e) {
+      console.error('Failed to load tailors', e);
     }
   }, []);
 
-  const subtotal = cart.reduce((acc, item) => acc + item.price, 0);
+  useEffect(() => {
+    loadProductDetails();
+  }, [cart, loadProductDetails]);
+
+  useEffect(() => {
+    loadTailors();
+  }, [loadTailors]);
+
+  // Calculate pricing from DB products
+  const subtotal = cart.reduce((acc, item) => {
+    const prod = productMap[item.product_id];
+    if (!prod) return acc;
+    const price = item.purchase_type === 'rent' ? (prod.rent_price || prod.price) : prod.price;
+    return acc + price * item.quantity;
+  }, 0);
+
   const subscriptionDiscountAmount = (subtotal * subscriptionDiscount) / 100;
   const couponDiscountAmount = (subtotal * couponDiscount) / 100;
   const totalDiscount = subscriptionDiscountAmount + couponDiscountAmount;
   const deliveryFee = deliveryOption === 'express' ? EXPRESS_DELIVERY_FEE : 0;
-  const finalPrice = subtotal - totalDiscount + deliveryFee;
-  
+  const finalPrice = Math.max(0, subtotal - totalDiscount + deliveryFee);
+
   const standardDeliveryDate = format(addDays(new Date(), 10), 'PPP');
   const expressDeliveryDate = format(addDays(new Date(), 5), 'PPP');
   const estimatedDeliveryDate = deliveryOption === 'standard' ? standardDeliveryDate : expressDeliveryDate;
 
   const handleApplyCoupon = () => {
     if (couponCode.toUpperCase() === VALID_COUPON) {
-        setCouponDiscount(COUPON_DISCOUNT_PERCENTAGE);
-        toast({
-            title: 'Coupon Applied!',
-            description: `You've received a ${COUPON_DISCOUNT_PERCENTAGE}% discount.`,
-        });
+      setCouponDiscount(COUPON_DISCOUNT_PERCENTAGE);
+      toast({ title: 'Coupon Applied!', description: `You've received a ${COUPON_DISCOUNT_PERCENTAGE}% discount.` });
     } else {
-        setCouponDiscount(0);
-        toast({
-            variant: 'destructive',
-            title: 'Invalid Coupon',
-            description: 'The coupon code you entered is not valid.',
-        });
+      setCouponDiscount(0);
+      toast({ variant: 'destructive', title: 'Invalid Coupon', description: 'The coupon code you entered is not valid.' });
     }
   };
 
-  const openCustomizeDialog = (item: CartItem) => {
-    setCurrentItemToCustomize(item);
-    setIsCustomizeDialogOpen(true);
+  const handleOpenCustomize = (item: CartItem) => {
+    setActiveItem(item);
+    setCustomNote(item.customization_notes || '');
+    setIsCustomizeOpen(true);
   };
 
-  const handleSaveCustomization = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!currentItemToCustomize) return;
-
-    const formData = new FormData(e.currentTarget);
-    const sleeveLength = formData.get('sleeveLength') as string;
-    const fit = formData.get('fit') as string;
-    const collarStyle = formData.get('collarStyle') as string;
-    const cuffStyle = formData.get('cuffStyle') as string;
-    const pocketStyle = formData.get('pocketStyle') as string;
-    const monogram = formData.get('monogram') as string;
-    const additionalNotes = formData.get('additionalNotes') as string;
-    
-    let noteParts = [];
-    if (sleeveLength) noteParts.push(`Sleeves: ${sleeveLength}`);
-    if (fit) noteParts.push(`Fit: ${fit}`);
-    if (collarStyle) noteParts.push(`Collar: ${collarStyle}`);
-    if (cuffStyle) noteParts.push(`Cuffs: ${cuffStyle}`);
-    if (pocketStyle) noteParts.push(`Pocket: ${pocketStyle}`);
-    if (monogram) noteParts.push(`Monogram: "${monogram}"`);
-    if (additionalNotes) noteParts.push(`Notes: ${additionalNotes}`);
-
-    const note = noteParts.join(', ');
-
-    updateCartItemNote(currentItemToCustomize.id, note);
-    setIsCustomizeDialogOpen(false);
-    toast({
-        title: 'Customization Saved',
-        description: `Your preferences for ${currentItemToCustomize.name} have been updated.`
-    });
-  };
-  
-  const handleDownloadInvoice = () => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-
-    doc.setFontSize(22);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PerfectFit', 14, 22);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Navi Mumbai, Maharashtra, India', 14, 30);
-    doc.text('support@perfectfit.com', 14, 35);
-    doc.text('+91 9867408609', 14, 40);
-
-    doc.setFontSize(18);
-    doc.text('Invoice', pageWidth - 14, 22, { align: 'right' });
-    doc.setFontSize(10);
-    doc.text(`Invoice #: INV-${new Date().getTime()}`, pageWidth - 14, 30, { align: 'right' });
-    doc.text(`Date: ${format(new Date(), 'PPP')}`, pageWidth - 14, 35, { align: 'right' });
-
-    doc.setLineWidth(0.5);
-    doc.line(14, 50, pageWidth - 14, 50);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Bill To:', 14, 58);
-    doc.setFont('helvetica', 'normal');
-    doc.text('User', 14, 64);
-    doc.text('user@example.com', 14, 69);
-    doc.text('123 Fashion Ave, Style City, 10001', 14, 74);
-    
-    (doc as any).autoTable({
-        startY: 85,
-        head: [['Item', 'Type', 'Price', 'Customization']],
-        body: submittedData?.items.map((item: CartItem) => [
-            item.name, 
-            item.purchaseType, 
-            `₹${item.price.toFixed(2)}`,
-            item.customizationNote || 'N/A'
-        ]),
-        theme: 'striped',
-        headStyles: { fillColor: [143, 88, 240] },
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    doc.setFontSize(10);
-    doc.text('Subtotal:', pageWidth - 60, finalY);
-    doc.text(`₹${subtotal.toFixed(2)}`, pageWidth - 14, finalY, { align: 'right' });
-
-    if(subscriptionDiscount > 0) {
-        doc.text(`Subscription Discount (${subscriptionDiscount}%):`, pageWidth - 60, finalY + 7);
-        doc.text(`-₹${subscriptionDiscountAmount.toFixed(2)}`, pageWidth - 14, finalY + 7, { align: 'right' });
-    }
-    
-    if(couponDiscount > 0) {
-        const yOffset = subscriptionDiscount > 0 ? 14 : 7;
-        doc.text(`Coupon Discount (${couponDiscount}%):`, pageWidth - 60, finalY + yOffset);
-        doc.text(`-₹${couponDiscountAmount.toFixed(2)}`, pageWidth - 14, finalY + yOffset, { align: 'right' });
-    }
-
-    if(deliveryFee > 0) {
-        const yOffset = (subscriptionDiscount > 0 ? 7 : 0) + (couponDiscount > 0 ? 7 : 0) + 7;
-        doc.text('Express Delivery Fee:', pageWidth - 60, finalY + yOffset);
-        doc.text(`₹${deliveryFee.toFixed(2)}`, pageWidth - 14, finalY + yOffset, { align: 'right' });
-    }
-
-    const totalYPosition = finalY + (deliveryFee > 0 ? 7 : 0) + (subscriptionDiscount > 0 ? 7 : 0) + (couponDiscount > 0 ? 7 : 0) + 7;
-
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Total Amount:', pageWidth - 60, totalYPosition);
-    doc.text(`₹${finalPrice.toFixed(2)}`, pageWidth - 14, totalYPosition, { align: 'right' });
-    
-    const pageHeight = doc.internal.pageSize.getHeight();
-    doc.setLineWidth(0.5);
-    doc.line(14, pageHeight - 30, pageWidth - 14, pageHeight - 30);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Thank you for your business!', pageWidth / 2, pageHeight - 22, { align: 'center' });
-    doc.text('If you have any questions, please contact support@perfectfit.com.', pageWidth / 2, pageHeight - 15, { align: 'center' });
-
-    doc.save(`PerfectFit-Invoice-Order.pdf`);
-  };
-
-  useEffect(() => {
-    if (state.message && !state.error) {
-        setSubmittedData(state.data);
-        setIsPaymentDialogOpen(true);
-    } else if (state.message && state.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Order Error',
-          description: state.message,
-        });
-    }
-  }, [state, toast]);
-
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-
-  const handlePaymentConfirmation = async (method: string) => {
-    setIsProcessingPayment(true);
-    
-    // Simulate real payment gateway processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsProcessingPayment(false);
-    setIsPaymentDialogOpen(false);
-    setSelectedPaymentMethod(null);
-    
-    const transactionId = `TXN_${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-    
-    const newOrders = submittedData.items.map((item: CartItem) => ({
-        id: `ORD0${Math.floor(Math.random() * 900) + 100}`,
-        item: item.name,
-        image: item.image,
-        dataAiHint: item.dataAiHint,
-        type: item.purchaseType,
-        status: 'Processing',
-        date: format(new Date(), 'yyyy-MM-dd'),
-        customizationNote: item.customizationNote,
-        price: item.price,
-    }));
-    
-    // Save to global context
-    addMultipleOrders(newOrders);
-    
-    // Persist to scalable backend
+  const handleSaveCustomization = async () => {
+    if (!activeItem) return;
     try {
-        if (!userUid) {
-             console.warn('User not logged in, skipping Firestore save.');
-        } else {
-             const orderId = `ORD${Math.floor(Math.random() * 900000) + 100000}`;
-             const orderPayload = {
-                 orderId,
-                 userId: userUid,
-                 customerName: 'PerfectFit Customer', // Ideally fetch from user profile
-                 amount: finalPrice,
-                 status: 'New',
-                 transactionId,
-                 paymentMethod: method,
-                 dueDate: format(addDays(new Date(), deliveryOption === 'express' ? 5 : 10), 'yyyy-MM-dd'),
-                 isPriority: deliveryOption === 'express',
-                 items: cart,
-                 measurements: aiMeasurements || null, // Attach AI sizing
-                 createdAt: new Date().toISOString()
-             };
-             
-             await addDoc(collection(db, 'orders'), orderPayload);
-             
-             // Update user's total orders
-             const userRef = doc(db, 'users', userUid);
-             const userSnap = await getDoc(userRef);
-             if (userSnap.exists()) {
-                 const currentTotal = userSnap.data().totalOrders || 0;
-                 await setDoc(userRef, { totalOrders: currentTotal + 1 }, { merge: true });
-             } else {
-                 await setDoc(userRef, { totalOrders: 1 }, { merge: true });
-             }
-        }
-    } catch (e) {
-        console.error('Failed to save order to db', e);
+      await updateCartItem(activeItem.id, { customization_notes: customNote });
+      setIsCustomizeOpen(false);
+      toast({ title: 'Customization Saved', description: 'Your preferences have been updated.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save customization.' });
     }
-    
-    clearCart();
-
-    toast({
-      title: 'Payment Successful!',
-      description: method === 'PerfectPay'
-        ? `Payment processed via ${method} (TXN: ${transactionId}). You've earned 5% cashback!`
-        : `Payment processed securely via ${method} (TXN: ${transactionId}).`,
-      action: (
-        <Button variant="outline" size="sm" onClick={handleDownloadInvoice}>
-            <Download className="mr-2 h-4 w-4" />
-            Download Invoice
-        </Button>
-      ),
-    });
-    formRef.current?.reset();
-    router.push('/orders');
   };
 
-  const closeDialog = () => {
-    setIsPaymentDialogOpen(false);
-    setSelectedPaymentMethod(null);
+  const handleCheckout = async () => {
+    if (cart.length === 0) return;
+    setIsSubmitting(true);
+
+    try {
+      // Step 1: Create Order in PostgreSQL
+      const order = await ordersApi.create({
+        items: cart.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          purchase_type: item.purchase_type,
+          size: item.size || undefined,
+          color: item.color || undefined,
+          customization_details: item.customization_notes ? { notes: item.customization_notes } : undefined,
+        })),
+        shipping_address: {
+          address,
+          city,
+          state,
+          postal_code: postalCode,
+          country: 'India',
+        },
+      });
+
+      // Step 2: Create Razorpay Order
+      const rzpOrder = await paymentsApi.createRazorpayOrder({
+        order_id: order.id,
+        payment_method: 'razorpay',
+      });
+
+      // Step 3: Open Razorpay Checkout widget
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        const options = {
+          key: rzpOrder.key_id,
+          amount: Math.round(rzpOrder.amount * 100),
+          currency: rzpOrder.currency || 'INR',
+          name: 'PerfectFit',
+          description: `Order #${order.id.slice(0, 8)}`,
+          order_id: rzpOrder.razorpay_order_id,
+          handler: async (response: any) => {
+            try {
+              // Verify payment on backend
+              await paymentsApi.verifyRazorpayPayment({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              });
+
+              await clearCart();
+              toast({ title: 'Payment Successful!', description: 'Your order has been confirmed and is now being processed.' });
+              router.push('/orders');
+            } catch (err: any) {
+              console.error(err);
+              toast({ variant: 'destructive', title: 'Payment Verification Failed', description: err.message || 'Verification error' });
+            }
+          },
+          prefill: {
+            email: user?.email || '',
+          },
+          theme: {
+            color: '#8B5CF6',
+          },
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      } else {
+        // Fallback: If Razorpay script hasn't loaded, verify direct test order
+        toast({ title: 'Order Placed', description: 'Your order is pending payment.' });
+        await clearCart();
+        router.push('/orders');
+      }
+    } catch (err: any) {
+      console.error('Checkout error:', err);
+      toast({ variant: 'destructive', title: 'Checkout Failed', description: err.message || 'Unable to complete order' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (cartLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
     <div className="animate-fade-in-up">
-        {cart.length === 0 ? (
-            <Card className="shadow-lg text-center py-20">
-                <CardHeader>
-                    <div className="mx-auto bg-primary/10 p-4 rounded-full w-fit">
-                        <ShoppingCart className="h-12 w-12 text-primary" />
-                    </div>
-                    <CardTitle className="text-3xl">Your Cart is Empty</CardTitle>
-                    <CardDescription className="text-lg">Looks like you haven't added anything to your cart yet.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Button asChild>
-                        <Link href="/dashboard">Start Shopping</Link>
-                    </Button>
-                </CardContent>
-            </Card>
-        ) : (
-        <form ref={formRef} action={formAction}>
-            <div className="grid lg:grid-cols-3 gap-8 items-start">
-                <div className="lg:col-span-2 space-y-8">
-                    <Card className="shadow-lg">
-                        <CardHeader>
-                            <CardTitle className="text-3xl flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 bg-size-200 animate-text-rainbow">
-                                <ShoppingCart className="h-8 w-8" />
-                                Your Shopping Cart
-                            </CardTitle>
-                            <CardDescription>
-                                Review and customize your items before purchase.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {cart.map((item) => (
-                                <div key={item.id} className="flex items-start gap-4 border-b pb-4 last:border-b-0 last:pb-0">
-                                    <Image
-                                        src={item.image}
-                                        alt={item.name}
-                                        width={80}
-                                        height={80}
-                                        className="rounded-md object-cover"
-                                        data-ai-hint={item.dataAiHint}
-                                    />
-                                    <div className="flex-1">
-                                        <h3 className="text-lg font-semibold">{item.name}</h3>
-                                        <div className="flex items-center gap-2">
-                                            <p className="text-muted-foreground capitalize">{item.type}</p>
-                                            <Badge variant={item.purchaseType === 'Buy' ? 'default' : 'secondary'} className="capitalize">{item.purchaseType}</Badge>
-                                        </div>
-                                        {item.customizationNote && <p className="text-xs text-muted-foreground italic mt-1 line-clamp-1">Note: {item.customizationNote}</p>}
-                                    </div>
-                                    <div className="text-right flex flex-col items-end gap-2">
-                                        <p className="text-xl font-bold">₹{item.price.toFixed(2)}</p>
-                                        <div className="flex items-center gap-1">
-                                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openCustomizeDialog(item)}>
-                                                <Edit className="h-4 w-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeFromCart(item.id)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                             <input type="hidden" name="items" value={JSON.stringify(cart)} />
-                        </CardContent>
-                    </Card>
-                    <Card className="shadow-lg">
-                        <CardHeader>
-                            <CardTitle>Tailor Selection</CardTitle>
-                            <CardDescription>Select a tailor for your custom-fit items.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                             <div className="space-y-2">
-                                <Label htmlFor="tailor">Nearby Tailors</Label>
-                                {isLocating ? (
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        <span>Finding tailors near you...</span>
-                                    </div>
-                                ) : (
-                                <Select name="tailor" required>
-                                    <SelectTrigger id="tailor">
-                                        <SelectValue placeholder="Select a tailor" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {nearbyTailors.map((tailor, index) => (
-                                            <SelectItem key={tailor.id} value={tailor.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                                                    <span>{tailor.name} - {tailor.location}</span>
-                                                    {index === 0 && <Badge variant="secondary">Nearest</Badge>}
-                                                </div>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-                
-                <div className="lg:col-span-1 space-y-8 sticky top-24">
-                    <Card className="shadow-lg">
-                        <CardHeader>
-                            <CardTitle>Order Summary</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                             <div className="space-y-2">
-                                <Label htmlFor="coupon">Have a coupon?</Label>
-                                <div className="flex gap-2">
-                                    <Input 
-                                        id="coupon" 
-                                        placeholder="Enter coupon code" 
-                                        value={couponCode}
-                                        onChange={(e) => setCouponCode(e.target.value)}
-                                    />
-                                    <Button type="button" variant="secondary" onClick={handleApplyCoupon}>Apply</Button>
-                                </div>
-                             </div>
-                             <Separator />
-                             <div className="w-full space-y-2">
-                                <div className="flex justify-between items-center text-muted-foreground">
-                                    <span>Subtotal ({cart.length} items)</span>
-                                    <span>₹{subtotal.toFixed(2)}</span>
-                                </div>
-                                {activePlan && (
-                                    <div className="flex justify-between items-center text-primary font-medium">
-                                        <span>{activePlan} Discount ({subscriptionDiscount}%)</span>
-                                        <span>-₹{subscriptionDiscountAmount.toFixed(2)}</span>
-                                    </div>
-                                )}
-                                {couponDiscount > 0 && (
-                                     <div className="flex justify-between items-center text-primary font-medium">
-                                        <span className='flex items-center gap-1.5'><Tag className="h-4 w-4"/>Coupon '{VALID_COUPON}' ({couponDiscount}%)</span>
-                                        <span>-₹{couponDiscountAmount.toFixed(2)}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between items-center text-muted-foreground">
-                                    <span>Delivery Fee</span>
-                                    <span>{deliveryFee > 0 ? `₹${deliveryFee.toFixed(2)}` : 'Free'}</span>
-                                </div>
-                                <Separator className="my-2" />
-                                <div className="flex justify-between items-center font-bold text-xl">
-                                    <span>Total</span>
-                                    <span>₹{finalPrice.toFixed(2)}</span>
-                                </div>
-                            </div>
-                             <Separator className="my-2"/>
-                             <RadioGroup defaultValue="standard" value={deliveryOption} onValueChange={(value) => setDeliveryOption(value as 'standard' | 'express')}>
-                                <Label htmlFor="standard-delivery" className={cn("flex justify-between items-center p-3 rounded-md border-2 cursor-pointer", deliveryOption === 'standard' && "border-primary")}>
-                                    <div>
-                                        <p className="font-semibold">Standard Delivery</p>
-                                        <p className="text-sm text-muted-foreground">Est. {standardDeliveryDate}</p>
-                                    </div>
-                                    <p className="font-semibold">Free</p>
-                                    <RadioGroupItem value="standard" id="standard-delivery" className="sr-only"/>
-                                </Label>
-                                <Label htmlFor="express-delivery" className={cn("flex justify-between items-center p-3 rounded-md border-2 cursor-pointer", deliveryOption === 'express' && "border-primary")}>
-                                    <div className="flex items-center gap-2">
-                                        <Zap className="h-5 w-5 text-primary" />
-                                        <div>
-                                            <p className="font-semibold">Express Delivery</p>
-                                            <p className="text-sm text-muted-foreground">Est. {expressDeliveryDate}</p>
-                                        </div>
-                                    </div>
-                                    <p className="font-semibold">₹{EXPRESS_DELIVERY_FEE.toFixed(2)}</p>
-                                    <RadioGroupItem value="express" id="express-delivery" className="sr-only"/>
-                                </Label>
-                             </RadioGroup>
-                             <div className="flex items-center gap-2 text-sm text-muted-foreground pt-2">
-                                <CalendarDays className="h-4 w-4"/>
-                                <span>Estimated Delivery: {estimatedDeliveryDate}</span>
-                            </div>
-                        </CardContent>
-                        <CardFooter>
-                             <SubmitButton disabled={cart.length === 0} />
-                        </CardFooter>
-                    </Card>
-                </div>
+      {cart.length === 0 ? (
+        <Card className="shadow-lg text-center py-20 border-white/10">
+          <CardHeader>
+            <div className="mx-auto bg-primary/10 p-4 rounded-full w-fit">
+              <ShoppingCart className="h-12 w-12 text-primary" />
             </div>
-        </form>
-        )}
-
-        <Dialog open={isPaymentDialogOpen} onOpenChange={closeDialog}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-2xl text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 bg-size-200 animate-text-rainbow">
-                        <Wallet />
-                        {selectedPaymentMethod === 'creditCard' ? 'Enter Card Details' : 'Complete Your Payment'}
-                    </DialogTitle>
-                     <DialogDescription>
-                        {selectedPaymentMethod === 'creditCard'
-                            ? `Please provide your payment information for the amount of ₹${finalPrice.toFixed(2)}.`
-                            : `Choose your preferred payment method to finalize your order for ₹${finalPrice.toFixed(2)}.`}
-                    </DialogDescription>
-                </DialogHeader>
-
-                {selectedPaymentMethod === 'creditCard' ? (
-                     <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="card-number">Card Number</Label>
-                            <Input id="card-number" placeholder="1234 5678 9101 1121" />
+            <CardTitle className="text-3xl">Your Cart is Empty</CardTitle>
+            <CardDescription className="text-lg">Looks like you haven't added anything to your cart yet.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/store">Browse Store Catalog</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid lg:grid-cols-3 gap-8 items-start">
+          <div className="lg:col-span-2 space-y-8">
+            <Card className="shadow-lg border-white/10">
+              <CardHeader>
+                <CardTitle className="text-3xl flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500">
+                  <ShoppingCart className="h-8 w-8 text-purple-400" />
+                  Your Shopping Cart
+                </CardTitle>
+                <CardDescription>
+                  Review and customize your items before purchase.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {cart.map((item) => {
+                  const prod = productMap[item.product_id];
+                  const itemPrice = prod ? (item.purchase_type === 'rent' ? (prod.rent_price || prod.price) : prod.price) : 0;
+                  return (
+                    <div key={item.id} className="flex items-start gap-4 border-b border-border/40 pb-4 last:border-b-0 last:pb-0">
+                      <div className="relative h-20 w-20 rounded-md overflow-hidden bg-muted/20 flex-shrink-0">
+                        <Image
+                          src={prod?.image_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=400'}
+                          alt={prod?.name || 'Garment'}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-semibold truncate">{prod?.name || 'Garment Item'}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={item.purchase_type === 'buy' ? 'default' : 'secondary'} className="capitalize">
+                            {item.purchase_type}
+                          </Badge>
+                          {item.size && <span className="text-xs text-muted-foreground">Size: {item.size}</span>}
+                          {item.color && <span className="text-xs text-muted-foreground">Color: {item.color}</span>}
+                          <span className="text-xs text-muted-foreground">Qty: {item.quantity}</span>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-2">
-                                <Label htmlFor="expiry">Expiry (MM/YY)</Label>
-                                <Input id="expiry" placeholder="MM/YY" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="cvc">CVC</Label>
-                                <Input id="cvc" placeholder="123" />
-                            </div>
+                        {item.customization_notes && (
+                          <p className="text-xs text-purple-400 italic mt-1 line-clamp-1">Customization: {item.customization_notes}</p>
+                        )}
+                      </div>
+                      <div className="text-right flex flex-col items-end gap-2">
+                        <p className="text-xl font-bold">₹{(itemPrice * item.quantity).toFixed(2)}</p>
+                        <div className="flex items-center gap-1">
+                          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => handleOpenCustomize(item)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeFromCart(item.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="name-on-card">Name on Card</Label>
-                            <Input id="name-on-card" placeholder="John Doe" />
-                        </div>
-                        <Button className="w-full" disabled={isProcessingPayment} onClick={() => handlePaymentConfirmation('Credit Card')}>
-                            {isProcessingPayment ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Processing...</> : 'Pay Now'}
-                        </Button>
+                      </div>
                     </div>
-                ) : (
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-                       <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled={isProcessingPayment} onClick={() => setSelectedPaymentMethod('creditCard')}>
-                            <CreditCardIcon />
-                            Credit Card
-                       </Button>
-                       <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled={isProcessingPayment} onClick={() => handlePaymentConfirmation('Google Pay')}>
-                            {isProcessingPayment ? <Loader2 className="h-5 w-5 animate-spin"/> : <GooglePayIcon />}
-                            Google Pay
-                       </Button>
-                       <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled={isProcessingPayment} onClick={() => handlePaymentConfirmation('Apple Pay')}>
-                            {isProcessingPayment ? <Loader2 className="h-5 w-5 animate-spin"/> : <ApplePayIcon />}
-                            Apple Pay
-                       </Button>
-                       <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled={isProcessingPayment} onClick={() => handlePaymentConfirmation('Paypal')}>
-                            {isProcessingPayment ? <Loader2 className="h-5 w-5 animate-spin"/> : <PaypalIcon />}
-                            Paypal
-                       </Button>
-                       <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled={isProcessingPayment} onClick={() => handlePaymentConfirmation('Razorpay')}>
-                            {isProcessingPayment ? <Loader2 className="h-5 w-5 animate-spin"/> : <RazorpayIcon />}
-                            Razorpay
-                       </Button>
-                       <div className="relative">
-                            <Button variant="outline" className="w-full justify-center gap-3 py-4 text-base" disabled>
-                                <PerfectPayIcon />
-                                PerfectPay
-                            </Button>
-                            <Badge variant="secondary" className="absolute -top-2 -right-2">Coming Soon</Badge>
-                       </div>
-                    </div>
-                )}
+                  );
+                })}
+              </CardContent>
+            </Card>
 
-                <DialogFooter>
-                    {selectedPaymentMethod === 'creditCard' && (
-                        <Button variant="ghost" onClick={() => setSelectedPaymentMethod(null)}>
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back
-                        </Button>
-                    )}
-                    <Button variant="ghost" onClick={closeDialog}>Cancel</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+            {/* Shipping Address */}
+            <Card className="shadow-lg border-white/10">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <MapPin className="h-5 w-5 text-primary" /> Delivery Address
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2 space-y-1">
+                  <Label htmlFor="address">Street Address</Label>
+                  <Input id="address" value={address} onChange={e => setAddress(e.target.value)} required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="city">City</Label>
+                  <Input id="city" value={city} onChange={e => setCity(e.target.value)} required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="state">State</Label>
+                  <Input id="state" value={state} onChange={e => setState(e.target.value)} required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="postalCode">Postal Code</Label>
+                  <Input id="postalCode" value={postalCode} onChange={e => setPostalCode(e.target.value)} required />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Dialog open={isCustomizeDialogOpen} onOpenChange={setIsCustomizeDialogOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Customize {currentItemToCustomize?.name}</DialogTitle>
-                    <DialogDescription>
-                        Specify your preferences for this item.
-                    </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleSaveCustomization}>
-                    <div className="py-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-2">
-                                <Label htmlFor="sleeveLength">Sleeve Length</Label>
-                                <Select name="sleeveLength" defaultValue="standard">
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Standard">Standard</SelectItem>
-                                        <SelectItem value="Shorter (-1 inch)">Shorter (-1 inch)</SelectItem>
-                                        <SelectItem value="Longer (+1 inch)">Longer (+1 inch)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="fit">Fit</Label>
-                                <Select name="fit" defaultValue="standard">
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Slim Fit">Slim Fit</SelectItem>
-                                        <SelectItem value="Standard Fit">Standard Fit</SelectItem>
-                                        <SelectItem value="Loose Fit">Loose Fit</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+            {/* Tailor Selection */}
+            {tailors.length > 0 && (
+              <Card className="shadow-lg border-white/10">
+                <CardHeader>
+                  <CardTitle>Assigned Master Tailor</CardTitle>
+                  <CardDescription>Selected tailor for precision alterations.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <RadioGroup value={selectedTailor} onValueChange={setSelectedTailor}>
+                    {tailors.map(t => (
+                      <Label key={t.id} htmlFor={t.id} className={cn("flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all", selectedTailor === t.id ? "border-purple-500 bg-purple-500/10" : "hover:bg-muted/40")}>
+                        <div className="flex items-center gap-3">
+                          <MapPin className="h-4 w-4 text-purple-400" />
+                          <div>
+                            <p className="font-bold text-sm">{t.shop_name}</p>
+                            <p className="text-xs text-muted-foreground">{t.city || 'Local Atelier'} • Rating: {t.rating} ★</p>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                           <div className="space-y-2">
-                               <Label htmlFor="collarStyle">Collar Style</Label>
-                                <Select name="collarStyle" defaultValue="standard">
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Standard Collar">Standard Collar</SelectItem>
-                                        <SelectItem value="Spread Collar">Spread Collar</SelectItem>
-                                        <SelectItem value="Button-Down">Button-Down</SelectItem>
-                                        <SelectItem value="Mandarin">Mandarin</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                               <Label htmlFor="cuffStyle">Cuff Style</Label>
-                                <Select name="cuffStyle" defaultValue="one-button">
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="One-Button Barrel">One-Button Barrel</SelectItem>
-                                        <SelectItem value="Two-Button Barrel">Two-Button Barrel</SelectItem>
-                                        <SelectItem value="French Cuff">French Cuff</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                               <Label htmlFor="pocketStyle">Pocket Style</Label>
-                                <Select name="pocketStyle" defaultValue="none">
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="None">None</SelectItem>
-                                        <SelectItem value="Standard Left Pocket">Standard Left Pocket</SelectItem>
-                                        <SelectItem value="Both Sides">Pockets on Both Sides</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                             <div className="space-y-2">
-                               <Label htmlFor="monogram">Monogram (Optional)</Label>
-                               <Input id="monogram" name="monogram" placeholder="e.g., JD"/>
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                           <Label htmlFor="additionalNotes">Additional Notes</Label>
-                           <Textarea 
-                                id="additionalNotes" 
-                                name="additionalNotes"
-                                placeholder="e.g., 'Please use mother-of-pearl buttons.'"/>
-                        </div>
+                        <RadioGroupItem value={t.id} id={t.id} />
+                      </Label>
+                    ))}
+                  </RadioGroup>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Sidebar Summary */}
+          <div className="lg:col-span-1 space-y-8 sticky top-24">
+            <Card className="shadow-lg border-white/10">
+              <CardHeader>
+                <CardTitle>Order Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="coupon">Have a coupon?</Label>
+                  <div className="flex gap-2">
+                    <Input id="coupon" placeholder="Enter coupon (e.g. PERFECT10)" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} />
+                    <Button type="button" variant="secondary" onClick={handleApplyCoupon}>Apply</Button>
+                  </div>
+                </div>
+                <Separator />
+                <div className="w-full space-y-2 text-sm">
+                  <div className="flex justify-between items-center text-muted-foreground">
+                    <span>Subtotal ({cart.length} items)</span>
+                    <span>₹{subtotal.toFixed(2)}</span>
+                  </div>
+                  {activePlan && (
+                    <div className="flex justify-between items-center text-purple-400 font-medium">
+                      <span>{activePlan} Discount ({subscriptionDiscount}%)</span>
+                      <span>-₹{subscriptionDiscountAmount.toFixed(2)}</span>
                     </div>
-                    <DialogFooter>
-                        <Button type="button" variant="ghost" onClick={() => setIsCustomizeDialogOpen(false)}>Cancel</Button>
-                        <Button type="submit">Save Customizations</Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
+                  )}
+                  {couponDiscount > 0 && (
+                    <div className="flex justify-between items-center text-emerald-400 font-medium">
+                      <span className="flex items-center gap-1"><Tag className="h-4 w-4"/>Coupon ({couponDiscount}%)</span>
+                      <span>-₹{couponDiscountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-muted-foreground">
+                    <span>Delivery Fee</span>
+                    <span>{deliveryFee > 0 ? `₹${deliveryFee.toFixed(2)}` : 'Free'}</span>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex justify-between items-center font-bold text-xl">
+                    <span>Total</span>
+                    <span>₹{finalPrice.toFixed(2)}</span>
+                  </div>
+                </div>
+                <Separator className="my-2"/>
+                <RadioGroup defaultValue="standard" value={deliveryOption} onValueChange={(value) => setDeliveryOption(value as 'standard' | 'express')}>
+                  <Label htmlFor="standard-delivery" className={cn("flex justify-between items-center p-3 rounded-xl border cursor-pointer", deliveryOption === 'standard' && "border-purple-500 bg-purple-500/10")}>
+                    <div>
+                      <p className="font-semibold text-sm">Standard Delivery</p>
+                      <p className="text-xs text-muted-foreground">Est. {standardDeliveryDate}</p>
+                    </div>
+                    <p className="font-semibold text-xs">Free</p>
+                    <RadioGroupItem value="standard" id="standard-delivery" className="sr-only"/>
+                  </Label>
+                  <Label htmlFor="express-delivery" className={cn("flex justify-between items-center p-3 rounded-xl border cursor-pointer", deliveryOption === 'express' && "border-purple-500 bg-purple-500/10")}>
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-purple-400" />
+                      <div>
+                        <p className="font-semibold text-sm">Express Delivery</p>
+                        <p className="text-xs text-muted-foreground">Est. {expressDeliveryDate}</p>
+                      </div>
+                    </div>
+                    <p className="font-semibold text-xs">₹{EXPRESS_DELIVERY_FEE.toFixed(2)}</p>
+                    <RadioGroupItem value="express" id="express-delivery" className="sr-only"/>
+                  </Label>
+                </RadioGroup>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
+                  <CalendarDays className="h-4 w-4"/>
+                  <span>Estimated Delivery: {estimatedDeliveryDate}</span>
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-3">
+                <Button className="w-full py-6 text-base font-bold bg-gradient-to-r from-fuchsia-500 to-purple-600 hover:from-fuchsia-600 hover:to-purple-700 text-white shadow-lg" size="lg" disabled={isSubmitting} onClick={handleCheckout}>
+                  {isSubmitting ? (
+                    <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Processing Order...</>
+                  ) : (
+                    'Proceed to Razorpay Payment'
+                  )}
+                </Button>
+                <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>256-Bit SSL Encrypted Razorpay Test Checkout</span>
+                </div>
+              </CardFooter>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Customization Dialog */}
+      <Dialog open={isCustomizeOpen} onOpenChange={setIsCustomizeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Customize Fit Preferences</DialogTitle>
+            <DialogDescription>Add tailored instructions or notes for this garment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="cust-note">Customization Notes</Label>
+              <Textarea
+                id="cust-note"
+                placeholder="e.g. Slim fit waist, adjust sleeve length by -1 inch, mother-of-pearl buttons"
+                value={customNote}
+                onChange={e => setCustomNote(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsCustomizeOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveCustomization}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

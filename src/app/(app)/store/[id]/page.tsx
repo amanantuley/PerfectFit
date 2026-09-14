@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Product } from '@/lib/db';
+import { productsApi, ApiProduct } from '@/lib/api';
 import { useApp } from '@/context/app-context';
 import { ShoppingCart, Tag, Loader2, ArrowLeft, Star, ShieldCheck, Ruler, Check, Truck, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
@@ -17,46 +16,38 @@ export default function ProductDetailPage() {
   const { toast } = useToast();
   const { addToCart } = useApp();
   
-  const [product, setProduct] = useState<Product | null>(null);
+  const [product, setProduct] = useState<ApiProduct | null>(null);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await fetch(`/api/products/${id}`);
-        if (!res.ok) {
-           router.push('/store');
-           return;
-        }
-        const data = await res.json();
-        setProduct(data.product);
+        const data = await productsApi.get(id);
+        setProduct(data);
       } catch (error) {
         console.error('Error fetching product:', error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Product not found.' });
+        router.push('/store');
       } finally {
         setLoading(false);
       }
     };
     
-    fetchProduct();
-  }, [id, router]);
+    if (id) fetchProduct();
+  }, [id, router, toast]);
 
-  const handleAddToCart = (purchaseType: 'Buy' | 'Rent') => {
+  const handleAddToCart = async (purchaseType: 'Buy' | 'Rent') => {
     if (!product) return;
-    
-    addToCart({
-      name: product.name,
-      price: product.price,
-      rentPrice: product.rentPrice,
-      type: product.type,
-      image: product.image,
-      dataAiHint: product.dataAiHint,
-    }, purchaseType);
-    
-    toast({
-      title: `Added to cart!`,
-      description: `${product.name} is ready for ${purchaseType.toLowerCase()}.`,
-      action: <Button variant="outline" size="sm" asChild><Link href="/cart">View Cart</Link></Button>
-    });
+    try {
+      await addToCart(product.id, 1, purchaseType.toLowerCase() as 'buy' | 'rent');
+      toast({
+        title: `Added to cart!`,
+        description: `${product.name} is ready for ${purchaseType.toLowerCase()}.`,
+        action: <Button variant="outline" size="sm" asChild><Link href="/cart">View Cart</Link></Button>
+      });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Cart Error', description: err.message || 'Could not add item to cart.' });
+    }
   };
 
   if (loading) {
@@ -78,16 +69,15 @@ export default function ProductDetailPage() {
       </Button>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Left Column - Image Gallery (Simplified to single image for now) */}
+        {/* Left Column - Image Gallery */}
         <div className="space-y-4">
           <div className="relative aspect-[3/4] w-full rounded-2xl overflow-hidden border border-white/10 bg-muted/20">
             <Image 
-              src={product.image} 
+              src={product.image_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=800'} 
               alt={product.name} 
               fill 
               className="object-cover"
               priority
-              data-ai-hint={product.dataAiHint}
             />
             {/* Badges */}
             <div className="absolute top-4 left-4 flex flex-col gap-2">
@@ -107,7 +97,7 @@ export default function ProductDetailPage() {
         <div className="flex flex-col">
           <div className="mb-6">
             <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
-               <span className="capitalize hover:text-primary cursor-pointer transition-colors">Men</span>
+               <span className="capitalize hover:text-primary cursor-pointer transition-colors">Catalog</span>
                <span>/</span>
                <span className="capitalize hover:text-primary cursor-pointer transition-colors">{product.type}s</span>
             </div>
@@ -122,7 +112,7 @@ export default function ProductDetailPage() {
                  ))}
                  <span className="font-semibold text-foreground ml-2 text-sm sm:text-base">{product.rating}</span>
               </div>
-              <span className="text-muted-foreground text-sm sm:text-base underline cursor-pointer hover:text-foreground">Read {product.reviewCount} Reviews</span>
+              <span className="text-muted-foreground text-sm sm:text-base underline cursor-pointer hover:text-foreground">Read {product.review_count} Reviews</span>
             </div>
 
             <div className="bg-gradient-to-br from-secondary/50 to-background rounded-2xl p-6 border border-white/10 mb-8 space-y-4">
@@ -135,15 +125,17 @@ export default function ProductDetailPage() {
                     <ShoppingCart className="mr-2 h-5 w-5" /> Buy Now
                   </Button>
                </div>
-               <div className="flex justify-between items-center pt-2">
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Rent Instead</p>
-                    <p className="text-xl font-bold text-purple-400">₹{product.rentPrice.toFixed(2)}<span className="text-sm text-muted-foreground font-normal">/day</span></p>
-                  </div>
-                  <Button size="lg" variant="secondary" className="px-8 font-bold text-base border border-purple-500/30 hover:border-purple-500/60" onClick={() => handleAddToCart('Rent')}>
-                    <Tag className="mr-2 h-5 w-5 text-purple-400" /> Rent Now
-                  </Button>
-               </div>
+               {product.rent_price && (
+                 <div className="flex justify-between items-center pt-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Rent Instead</p>
+                      <p className="text-xl font-bold text-purple-400">₹{product.rent_price.toFixed(2)}<span className="text-sm text-muted-foreground font-normal">/day</span></p>
+                    </div>
+                    <Button size="lg" variant="secondary" className="px-8 font-bold text-base border border-purple-500/30 hover:border-purple-500/60" onClick={() => handleAddToCart('Rent')}>
+                      <Tag className="mr-2 h-5 w-5 text-purple-400" /> Rent Now
+                    </Button>
+                 </div>
+               )}
             </div>
           </div>
 
@@ -158,7 +150,7 @@ export default function ProductDetailPage() {
             <div className="border-t border-white/10 pt-6">
                <h3 className="text-lg font-bold mb-3">Product Description</h3>
                <p className="text-muted-foreground leading-relaxed">
-                 {product.description} Crafted from premium materials sourced globally, this {product.type} represents the pinnacle of modern tailoring combined with classic style aesthetics.
+                 {product.description || `Crafted from premium materials, this ${product.type} represents the pinnacle of modern tailoring combined with classic style aesthetics.`}
                </p>
             </div>
 

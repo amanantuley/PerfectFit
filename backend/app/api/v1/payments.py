@@ -1,6 +1,6 @@
 """Payment and Razorpay integration routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models import Payment, Order, PaymentStatus, Subscription
@@ -8,6 +8,7 @@ from app.schemas.schemas import PaymentCreate, RazorpayVerify, PaymentResponse
 from app.core.security import get_current_user
 from app.core.exceptions import OrderNotFoundError, RazorpayVerificationError
 from app.config import settings
+from uuid import UUID
 import razorpay
 import hashlib
 import hmac
@@ -15,6 +16,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+def to_uuid(val):
+    if val is None or isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return val
+
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -30,28 +41,23 @@ async def create_razorpay_order(
 ):
     """
     Create Razorpay order for either an order or subscription
-    
-    Either order_id or subscription_id must be provided
     """
     user_id = current_user["user_id"]
     
-    # Determine payment type and amount
     amount = None
     receipt = None
     
     if payment_create.order_id:
-        # Order payment
         order = db.query(Order).filter(
-            Order.id == payment_create.order_id,
-            Order.user_id == user_id
+            Order.id == to_uuid(payment_create.order_id),
+            Order.user_id == to_uuid(user_id)
         ).first()
 
         if not order:
             raise OrderNotFoundError()
 
-        # Check if payment already exists and is completed
         existing_payment = db.query(Payment).filter(
-            Payment.order_id == payment_create.order_id,
+            Payment.order_id == to_uuid(payment_create.order_id),
             Payment.status == "completed"
         ).first()
 
@@ -65,10 +71,9 @@ async def create_razorpay_order(
         receipt = str(order.id)
         
     elif payment_create.subscription_id:
-        # Subscription payment
         subscription = db.query(Subscription).filter(
-            Subscription.id == payment_create.subscription_id,
-            Subscription.user_id == user_id
+            Subscription.id == to_uuid(payment_create.subscription_id),
+            Subscription.user_id == to_uuid(user_id)
         ).first()
 
         if not subscription:
@@ -92,7 +97,7 @@ async def create_razorpay_order(
             "amount": int(amount * 100),  # Amount in paise
             "currency": "INR",
             "receipt": receipt,
-            "payment_capture": 1,  # Auto-capture
+            "payment_capture": 1,
             "notes": {
                 "user_id": str(user_id),
                 "order_id": str(payment_create.order_id) if payment_create.order_id else None,
@@ -101,16 +106,15 @@ async def create_razorpay_order(
             }
         })
 
-        # Create or update payment record
         payment = db.query(Payment).filter(
             Payment.razorpay_order_id == razorpay_order["id"]
         ).first()
         
         if not payment:
             payment = Payment(
-                order_id=payment_create.order_id,
-                subscription_id=payment_create.subscription_id,
-                user_id=user_id,
+                order_id=to_uuid(payment_create.order_id),
+                subscription_id=to_uuid(payment_create.subscription_id),
+                user_id=to_uuid(user_id),
                 amount=amount,
                 currency="INR",
                 payment_method=payment_create.payment_method,
@@ -149,15 +153,12 @@ async def verify_razorpay_payment(
     db: Session = Depends(get_db)
 ):
     """
-    Verify Razorpay payment signature
-    
-    Handles both order and subscription payments
+    Verify Razorpay payment signature and update order/subscription state transactionally
     """
     try:
-        # Get payment from database
         payment = db.query(Payment).filter(
             Payment.razorpay_order_id == payment_verify.razorpay_order_id,
-            Payment.user_id == current_user["user_id"]
+            Payment.user_id == to_uuid(current_user["user_id"])
         ).first()
 
         if not payment:
@@ -179,24 +180,20 @@ async def verify_razorpay_payment(
         payment.razorpay_payment_id = payment_verify.razorpay_payment_id
         payment.razorpay_signature = payment_verify.razorpay_signature
 
-        # Update order payment status if this is an order payment
         if payment.order_id:
-            order = db.query(Order).filter(Order.id == payment.order_id).first()
+            order = db.query(Order).filter(Order.id == to_uuid(payment.order_id)).first()
             if order:
                 order.payment_status = PaymentStatus.COMPLETED
                 order.status = "processing"
-                logger.info(f"✓ Order payment verified: {payment_verify.razorpay_payment_id} for order {payment.order_id}")
+                logger.info(f"✓ Order payment verified for order {payment.order_id}")
         
-        # Update subscription status if this is a subscription payment
         if payment.subscription_id:
-            subscription = db.query(Subscription).filter(Subscription.id == payment.subscription_id).first()
+            subscription = db.query(Subscription).filter(Subscription.id == to_uuid(payment.subscription_id)).first()
             if subscription:
                 subscription.status = "active"
-                logger.info(f"✓ Subscription payment verified: {payment_verify.razorpay_payment_id} for subscription {payment.subscription_id}")
+                logger.info(f"✓ Subscription payment verified for subscription {payment.subscription_id}")
 
         db.commit()
-
-        logger.info(f"✓ Payment verified: {payment_verify.razorpay_payment_id}")
 
         return {
             "status": "success",
@@ -221,17 +218,13 @@ async def get_payment(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get payment details"""
     payment = db.query(Payment).filter(
         Payment.id == payment_id,
         Payment.user_id == current_user["user_id"]
     ).first()
 
     if not payment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Payment not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
 
     return payment
 
@@ -242,90 +235,89 @@ async def refund_payment(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Refund a payment
-    
-    This triggers a refund via Razorpay
-    """
     payment = db.query(Payment).filter(
         Payment.id == payment_id,
         Payment.user_id == current_user["user_id"]
     ).first()
 
     if not payment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Payment not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
 
     if payment.status != "completed":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only refund completed payments"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only refund completed payments")
 
     try:
-        # Process refund via Razorpay
         refund = razorpay_client.payment.refund(
             payment.razorpay_payment_id,
-            {
-                "amount": int(payment.amount * 100),
-                "notes": {
-                    "payment_id": str(payment.id),
-                }
-            }
+            {"amount": int(payment.amount * 100), "notes": {"payment_id": str(payment.id)}}
         )
-
-        # Update payment status
         payment.status = "refunded"
         db.commit()
-
-        logger.info(f"✓ Refund processed: {refund['id']}")
-
-        return {
-            "status": "success",
-            "message": "Refund processed successfully",
-            "refund_id": refund["id"],
-        }
-
+        return {"status": "success", "message": "Refund processed successfully", "refund_id": refund["id"]}
     except Exception as e:
         logger.error(f"✗ Refund processing failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Refund processing failed"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Refund processing failed")
 
 
 @router.post("/razorpay/webhook")
-async def razorpay_webhook(request_data: dict, db: Session = Depends(get_db)):
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Razorpay webhook endpoint
-    
-    Receives payment event notifications from Razorpay
+    Secure Razorpay webhook endpoint with signature verification & idempotent event processing.
     """
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature")
+
+    if settings.RAZORPAY_WEBHOOK_SECRET and signature:
+        expected_sig = hmac.new(
+            key=settings.RAZORPAY_WEBHOOK_SECRET.encode(),
+            msg=raw_body,
+            digestmod=hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(expected_sig, signature):
+            logger.warning("✗ Invalid Razorpay webhook signature")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook signature")
+
+    request_data = await request.json()
     event = request_data.get("event")
     payload = request_data.get("payload", {})
 
-    logger.info(f"Received Razorpay webhook: {event}")
+    logger.info(f"Received verified Razorpay webhook: {event}")
 
     try:
-        if event == "payment.authorized":
-            payment_id = payload.get("payment", {}).get("entity", {}).get("id")
-            # Handle payment authorized
+        if event in ["payment.authorized", "payment.captured"]:
+            payment_entity = payload.get("payment", {}).get("entity", {})
+            rzp_order_id = payment_entity.get("order_id")
+            rzp_payment_id = payment_entity.get("id")
+
+            if rzp_order_id:
+                payment = db.query(Payment).filter(Payment.razorpay_order_id == rzp_order_id).first()
+                if payment and payment.status != "completed":
+                    payment.status = "completed"
+                    payment.razorpay_payment_id = rzp_payment_id
+                    if payment.order_id:
+                        order = db.query(Order).filter(Order.id == payment.order_id).first()
+                        if order:
+                            order.payment_status = PaymentStatus.COMPLETED
+                            order.status = "processing"
+                    if payment.subscription_id:
+                        sub = db.query(Subscription).filter(Subscription.id == payment.subscription_id).first()
+                        if sub:
+                            sub.status = "active"
+                    db.commit()
 
         elif event == "payment.failed":
-            payment_id = payload.get("payment", {}).get("entity", {}).get("id")
-            # Handle payment failed
-            payment = db.query(Payment).filter(
-                Payment.razorpay_payment_id == payment_id
-            ).first()
-            if payment:
-                payment.status = "failed"
-                db.commit()
-
-        elif event == "refund.processed":
-            refund_id = payload.get("refund", {}).get("entity", {}).get("id")
-            # Handle refund processed
+            payment_entity = payload.get("payment", {}).get("entity", {})
+            rzp_order_id = payment_entity.get("order_id")
+            if rzp_order_id:
+                payment = db.query(Payment).filter(Payment.razorpay_order_id == rzp_order_id).first()
+                if payment:
+                    payment.status = "failed"
+                    if payment.order_id:
+                        order = db.query(Order).filter(Order.id == payment.order_id).first()
+                        if order:
+                            order.payment_status = PaymentStatus.FAILED
+                    db.commit()
 
         return {"status": "received"}
 

@@ -119,8 +119,13 @@ async def update_cart_item(
     cart = get_or_create_cart(user_id, db)
     
     # Get cart item
+    try:
+        target_item_id = UUID(item_id) if isinstance(item_id, str) else item_id
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cart item not found")
+
     cart_item = db.query(CartItem).filter(
-        CartItem.id == item_id,
+        CartItem.id == target_item_id,
         CartItem.cart_id == cart.id
     ).first()
     
@@ -175,8 +180,13 @@ async def remove_from_cart(
     cart = get_or_create_cart(user_id, db)
     
     # Get cart item
+    try:
+        target_item_id = UUID(item_id) if isinstance(item_id, str) else item_id
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cart item not found")
+
     cart_item = db.query(CartItem).filter(
-        CartItem.id == item_id,
+        CartItem.id == target_item_id,
         CartItem.cart_id == cart.id
     ).first()
     

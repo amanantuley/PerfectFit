@@ -1,57 +1,12 @@
-
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { cartApi, ordersApi, platformApi, ApiCartItem, ApiOrder, ApiReturnRequest } from '@/lib/api';
 
-// Types from the backend API
-export interface CartItem {
-  id: string;
-  product_id: string;
-  quantity: number;
-  purchase_type: 'buy' | 'rent';
-  size?: string;
-  color?: string;
-  customization_notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Order {
-  id: string;
-  user_id: string;
-  total_amount: number;
-  discount_applied: number;
-  tax_amount: number;
-  shipping_amount: number;
-  final_amount: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'returned';
-  payment_status: 'pending' | 'completed' | 'failed' | 'refunded';
-  items: OrderItem[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OrderItem {
-  id: string;
-  product_id: string;
-  quantity: number;
-  unit_price: number;
-  purchase_type: string;
-  size?: string;
-  color?: string;
-}
-
-export interface ReturnEntry {
-  id: string;
-  order_id: string;
-  user_id: string;
-  reason: string;
-  description?: string;
-  status: 'requested' | 'approved' | 'rejected' | 'shipped_back' | 'completed';
-  refund_amount?: number;
-  created_at: string;
-}
+export type CartItem = ApiCartItem;
+export type Order = ApiOrder;
+export type ReturnEntry = ApiReturnRequest;
 
 interface AppContextType {
   orders: Order[];
@@ -65,13 +20,14 @@ interface AppContextType {
   returns: ReturnEntry[];
   returnsLoading: boolean;
   returnsError?: string;
+  fetchReturns: () => Promise<void>;
   addReturn: (returnEntry: ReturnEntry) => void;
   
   cart: CartItem[];
   cartLoading: boolean;
   cartError?: string;
   fetchCart: () => Promise<void>;
-  addToCart: (productId: string, quantity: number, purchaseType: 'buy' | 'rent', options?: Partial<CartItem>) => Promise<void>;
+  addToCart: (productId: string, quantity?: number, purchaseType?: 'buy' | 'rent', options?: Partial<CartItem>) => Promise<void>;
   removeFromCart: (itemId: string) => Promise<void>;
   updateCartItem: (itemId: string, updates: Partial<CartItem>) => Promise<void>;
   clearCart: () => Promise<void>;
@@ -80,7 +36,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
@@ -97,153 +53,127 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [cartLoading, setCartLoading] = useState(false);
   const [cartError, setCartError] = useState<string>();
 
-  // API helper
-  const apiCall = async (url: string, options: RequestInit = {}) => {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'API request failed');
-    }
-
-    return response.json();
-  };
-
-  // Fetch orders from API
-  const fetchOrders = async () => {
-    if (!user || !token) return;
-    
+  // Fetch orders from FastAPI
+  const fetchOrders = useCallback(async () => {
+    if (!user) { setOrders([]); return; }
     try {
       setOrdersLoading(true);
       setOrdersError(undefined);
-      const data = await apiCall('/api/v1/orders');
+      const data = await ordersApi.list();
       setOrders(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch orders';
       setOrdersError(message);
-      console.error('Failed to fetch orders:', error);
     } finally {
       setOrdersLoading(false);
     }
-  };
+  }, [user]);
 
-  // Fetch cart from API
-  const fetchCart = async () => {
-    if (!user || !token) return;
-    
+  // Fetch returns from FastAPI
+  const fetchReturns = useCallback(async () => {
+    if (!user) { setReturns([]); return; }
+    try {
+      setReturnsLoading(true);
+      setReturnsError(undefined);
+      const data = await platformApi.listReturns();
+      setReturns(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch returns';
+      setReturnsError(message);
+    } finally {
+      setReturnsLoading(false);
+    }
+  }, [user]);
+
+  // Fetch cart from FastAPI
+  const fetchCart = useCallback(async () => {
+    if (!user) { setCart([]); return; }
     try {
       setCartLoading(true);
       setCartError(undefined);
-      const data = await apiCall('/api/v1/cart');
+      const data = await cartApi.get();
       setCart(data.items || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch cart';
       setCartError(message);
-      console.error('Failed to fetch cart:', error);
     } finally {
       setCartLoading(false);
     }
-  };
+  }, [user]);
 
-  // Add to cart via API
+  // Add to cart via FastAPI
   const addToCart = async (
     productId: string,
-    quantity: number,
-    purchaseType: 'buy' | 'rent',
+    quantity: number = 1,
+    purchaseType: 'buy' | 'rent' = 'buy',
     options?: Partial<CartItem>
   ) => {
-    if (!user || !token) return;
-    
+    if (!user) return;
     try {
       setCartError(undefined);
-      const item = await apiCall('/api/v1/cart/items', {
-        method: 'POST',
-        body: JSON.stringify({
-          product_id: productId,
-          quantity,
-          purchase_type: purchaseType,
-          ...options,
-        }),
+      await cartApi.addItem({
+        product_id: productId,
+        quantity,
+        purchase_type: purchaseType,
+        size: options?.size || undefined,
+        color: options?.color || undefined,
+        customization_notes: options?.customization_notes || undefined,
       });
-      
-      // Refresh cart to get updated data
       await fetchCart();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to add item to cart';
       setCartError(message);
-      console.error('Failed to add to cart:', error);
       throw error;
     }
   };
 
-  // Remove from cart via API
+  // Remove from cart via FastAPI
   const removeFromCart = async (itemId: string) => {
-    if (!user || !token) return;
-    
+    if (!user) return;
     try {
       setCartError(undefined);
-      await apiCall(`/api/v1/cart/items/${itemId}`, {
-        method: 'DELETE',
-      });
-      
-      // Refresh cart
+      await cartApi.removeItem(itemId);
       await fetchCart();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to remove item from cart';
       setCartError(message);
-      console.error('Failed to remove from cart:', error);
       throw error;
     }
   };
 
-  // Update cart item via API
+  // Update cart item via FastAPI
   const updateCartItem = async (itemId: string, updates: Partial<CartItem>) => {
-    if (!user || !token) return;
-    
+    if (!user) return;
     try {
       setCartError(undefined);
-      await apiCall(`/api/v1/cart/items/${itemId}`, {
-        method: 'PUT',
-        body: JSON.stringify(updates),
+      await cartApi.updateItem(itemId, {
+        quantity: updates.quantity,
+        size: updates.size || undefined,
+        color: updates.color || undefined,
+        customization_notes: updates.customization_notes || undefined,
       });
-      
-      // Refresh cart
       await fetchCart();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update cart item';
       setCartError(message);
-      console.error('Failed to update cart item:', error);
       throw error;
     }
   };
 
-  // Clear cart via API
+  // Clear cart via FastAPI
   const clearCart = async () => {
-    if (!user || !token) return;
-    
+    if (!user) return;
     try {
       setCartError(undefined);
-      await apiCall('/api/v1/cart', {
-        method: 'DELETE',
-      });
-      
+      await cartApi.clear();
       setCart([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to clear cart';
       setCartError(message);
-      console.error('Failed to clear cart:', error);
       throw error;
     }
   };
 
-  // Local context methods (for backward compatibility)
   const addOrder = (order: Order) => {
     setOrders(prevOrders => [order, ...prevOrders]);
   };
@@ -266,11 +196,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Load data when user authenticates
   useEffect(() => {
-    if (user && token) {
+    if (user) {
       fetchOrders();
       fetchCart();
+      fetchReturns();
+    } else {
+      setOrders([]);
+      setCart([]);
+      setReturns([]);
     }
-  }, [user, token]);
+  }, [user, fetchOrders, fetchCart, fetchReturns]);
 
   return (
     <AppContext.Provider value={{ 
@@ -285,6 +220,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returns,
         returnsLoading,
         returnsError,
+        fetchReturns,
         addReturn,
         
         cart,

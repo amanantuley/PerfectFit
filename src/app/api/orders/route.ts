@@ -1,41 +1,39 @@
 import { NextResponse } from 'next/server';
-import { createOrder, getUserOrders } from '@/lib/db';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { items, total, userId } = body;
-    
-    if (!items || items.length === 0) {
-      return NextResponse.json({ error: 'Order must contain items' }, { status: 400 });
-    }
-    
-    // In a real app, userId would come from the verified session token
-    const effectiveUserId = userId || 'anonymous_user';
-    
-    const order = await createOrder({
-      userId: effectiveUserId,
-      items,
-      total,
+    const cookie = request.headers.get('cookie') || '';
+    const res = await fetch(`${API_BASE_URL}/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': cookie,
+      },
+      body: JSON.stringify(body),
     });
-    
-    return NextResponse.json({ success: true, order });
-  } catch (error) {
-    console.error('Error creating order:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (error: any) {
+    console.error('Error creating order proxy:', error);
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'anonymous_user';
-    
-    const orders = await getUserOrders(userId);
-    
-    return NextResponse.json({ orders });
-  } catch (error) {
-    console.error('Error fetching orders:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    const cookie = request.headers.get('cookie') || '';
+    const res = await fetch(`${API_BASE_URL}/orders`, {
+      headers: {
+        'Cookie': cookie,
+      },
+    });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (error: any) {
+    console.error('Error fetching orders proxy:', error);
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

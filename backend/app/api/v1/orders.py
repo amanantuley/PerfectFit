@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
+def to_uuid(val):
+    if val is None or isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return val
+
+
+
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(
     order_create: OrderCreate,
@@ -125,7 +135,7 @@ async def get_user_orders(
 ):
     """Get all orders for current user"""
     orders = db.query(Order).filter(
-        Order.user_id == current_user["user_id"]
+        Order.user_id == to_uuid(current_user["user_id"])
     ).order_by(Order.created_at.desc()).all()
 
     return orders
@@ -139,8 +149,8 @@ async def get_order(
 ):
     """Get order details"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user["user_id"]
+        Order.id == to_uuid(order_id),
+        Order.user_id == to_uuid(current_user["user_id"])
     ).first()
 
     if not order:
@@ -159,7 +169,7 @@ async def update_order_status(
     """Update order status (Admin/Tailor)"""
     # In a real app, check if user is admin or tailor who owns this order
 
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).filter(Order.id == to_uuid(order_id)).first()
 
     if not order:
         raise OrderNotFoundError()
@@ -192,8 +202,8 @@ async def get_order_tracking(
 ):
     """Get order tracking information"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user["user_id"]
+        Order.id == to_uuid(order_id),
+        Order.user_id == to_uuid(current_user["user_id"])
     ).first()
 
     if not order:
@@ -218,8 +228,8 @@ async def cancel_order(
 ):
     """Cancel order (if in pending status)"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user["user_id"]
+        Order.id == to_uuid(order_id),
+        Order.user_id == to_uuid(current_user["user_id"])
     ).first()
 
     if not order:
@@ -235,7 +245,7 @@ async def cancel_order(
     # Restore inventory reserved when the order was created.
     for item in order.order_items:
         if item.purchase_type == "buy":
-            product = db.query(Product).filter(Product.id == item.product_id).first()
+            product = db.query(Product).filter(Product.id == to_uuid(item.product_id)).first()
             if product:
                 product.stock_quantity += item.quantity
                 product.in_stock = True

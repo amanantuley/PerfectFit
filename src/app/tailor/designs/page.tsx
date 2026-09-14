@@ -20,25 +20,39 @@ import {
 import { Button } from '@/components/ui/button';
 import { Plus, DollarSign, Clock, Edit, Upload, Loader2 } from 'lucide-react';
 import Image from 'next/image';
-import { designs as initialDesigns } from '@/lib/designs-data';
 import { useTranslation } from '@/context/translation-provider';
 import React, { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
-type Design = typeof initialDesigns[0];
+export interface TailorDesign {
+  name: string;
+  image: string;
+  dataAiHint?: string;
+  price: number;
+  timeToCreate: string;
+}
+
+const DEFAULT_DESIGNS: TailorDesign[] = [
+  { name: 'Classic Two-Piece Suit', image: '/CTPS.png', price: 1800, timeToCreate: '5 days' },
+  { name: 'Embroidered Sherwani', image: '/ES.png', price: 2000, timeToCreate: '10 days' },
+  { name: 'Linen Summer Shirt', image: '/LSS.png', price: 800, timeToCreate: '2 days' },
+  { name: 'Formal Evening Gown', image: '/FEG.png', price: 1900, timeToCreate: '14 days' },
+  { name: 'Custom Denim Jacket', image: '/CDJ.png', price: 1500, timeToCreate: '4 days' },
+  { name: 'Silk Blend Kurta', image: '/SBK.png', price: 1600, timeToCreate: '3 days' },
+];
 
 export default function TailorDesignsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [designs, setDesigns] = useState(initialDesigns);
+  const [designs, setDesigns] = useState<TailorDesign[]>(DEFAULT_DESIGNS);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [currentDesign, setCurrentDesign] = useState<Partial<Design> | null>(null);
+  const [currentDesign, setCurrentDesign] = useState<Partial<TailorDesign> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleOpenDialog = (design?: Design) => {
+  const handleOpenDialog = (design?: TailorDesign) => {
     if (design) {
         setIsEditing(true);
         setCurrentDesign(design);
