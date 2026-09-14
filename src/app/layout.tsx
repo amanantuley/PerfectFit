@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from '@/components/theme-provider';
 import ChatWidget from '@/components/chat-widget';
+import { AuthProvider } from '@/context/auth-provider';
 import { Inter } from 'next/font/google';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -24,7 +25,7 @@ export default function RootLayout({
             defaultTheme="dark"
             storageKey="ui-theme"
         >
-            {children}
+            <AuthProvider>{children}</AuthProvider>
             <Toaster />
             <ChatWidget />
         </ThemeProvider>

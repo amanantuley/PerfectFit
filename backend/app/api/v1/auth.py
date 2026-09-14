@@ -1,6 +1,6 @@
 """Authentication routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models import User, UserRole
@@ -25,6 +25,7 @@ from app.core.exceptions import (
     UserAlreadyExistsError,
     InvalidCredentialsError,
 )
+from app.config import settings
 import logging
 from datetime import timedelta
 
@@ -32,9 +33,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Set browser sessions without exposing JWTs to JavaScript."""
+    secure = settings.ENV.lower() == "production"
+    response.set_cookie("perfectfit_access", access_token, httponly=True, secure=secure,
+                        samesite="lax", max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/")
+    response.set_cookie("perfectfit_refresh", refresh_token, httponly=True, secure=secure,
+                        samesite="lax", max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, path="/api/v1/auth")
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserCreate,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """
@@ -67,6 +78,9 @@ async def register(
     db.commit()
     db.refresh(db_user)
 
+    access_token = create_access_token(data={"sub": str(db_user.id), "email": db_user.email, "role": db_user.role.value})
+    refresh_token = create_refresh_token(data={"sub": str(db_user.id), "email": db_user.email})
+    set_auth_cookies(response, access_token, refresh_token)
     logger.info(f"✓ User registered successfully: {user_data.email}")
     return db_user
 
@@ -74,6 +88,7 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     credentials: LoginRequest,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """
@@ -108,6 +123,7 @@ async def login(
             "email": user.email,
         }
     )
+    set_auth_cookies(response, access_token, refresh_token)
 
     # Update last login
     user.last_login = __import__('datetime').datetime.utcnow()
@@ -123,12 +139,14 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token_endpoint(refresh_data: TokenRefreshRequest):
+async def refresh_token_endpoint(request: Request, response: Response, refresh_data: TokenRefreshRequest | None = None):
     """
     Refresh access token using refresh token
     """
     try:
-        token = refresh_data.token
+        token = (refresh_data.token if refresh_data else None) or request.cookies.get("perfectfit_refresh")
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
         payload = verify_token(token, token_type="refresh")
         user_id = payload.get("sub")
         email = payload.get("email")
@@ -143,6 +161,7 @@ async def refresh_token_endpoint(refresh_data: TokenRefreshRequest):
 
         logger.info(f"✓ Token refreshed for user: {email}")
 
+        set_auth_cookies(response, new_access_token, token)
         return {
             "access_token": new_access_token,
             "refresh_token": token,
@@ -157,11 +176,13 @@ async def refresh_token_endpoint(refresh_data: TokenRefreshRequest):
 
 
 @router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user)):
+async def logout(response: Response, current_user: dict = Depends(get_current_user)):
     """
     Logout user (token-based, so just return success)
     """
     logger.info(f"✓ User logged out: {current_user['payload'].get('email')}")
+    response.delete_cookie("perfectfit_access", path="/")
+    response.delete_cookie("perfectfit_refresh", path="/api/v1/auth")
     return {"message": "Successfully logged out"}
 
 

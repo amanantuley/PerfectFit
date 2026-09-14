@@ -97,6 +97,55 @@ class ProductResponse(ProductBase):
         from_attributes = True
 
 
+# ===================== CART SCHEMAS =====================
+class CartItemCreate(BaseModel):
+    product_id: UUID
+    quantity: int = 1
+    purchase_type: str = "buy"
+    size: Optional[str] = None
+    color: Optional[str] = None
+    customization_details: Optional[Dict[str, Any]] = None
+    customization_notes: Optional[str] = None
+    rental_start_date: Optional[datetime] = None
+    rental_end_date: Optional[datetime] = None
+
+
+class CartItemUpdate(BaseModel):
+    quantity: Optional[int] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    customization_details: Optional[Dict[str, Any]] = None
+    customization_notes: Optional[str] = None
+    rental_start_date: Optional[datetime] = None
+    rental_end_date: Optional[datetime] = None
+
+
+class CartItemResponse(BaseModel):
+    id: UUID
+    product_id: UUID
+    quantity: int
+    purchase_type: str
+    size: Optional[str] = None
+    color: Optional[str] = None
+    customization_notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CartResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    items: List[CartItemResponse]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ===================== ORDER SCHEMAS =====================
 class OrderItemCreate(BaseModel):
     product_id: UUID
@@ -148,7 +197,8 @@ class OrderResponse(BaseModel):
 
 # ===================== PAYMENT SCHEMAS =====================
 class PaymentCreate(BaseModel):
-    order_id: UUID
+    order_id: Optional[UUID] = None
+    subscription_id: Optional[UUID] = None
     payment_method: str = "razorpay"
 
 
@@ -160,7 +210,8 @@ class RazorpayVerify(BaseModel):
 
 class PaymentResponse(BaseModel):
     id: UUID
-    order_id: UUID
+    order_id: Optional[UUID] = None
+    subscription_id: Optional[UUID] = None
     amount: float
     currency: str
     payment_method: str

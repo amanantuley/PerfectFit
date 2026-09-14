@@ -1,4 +1,4 @@
-"""Additional models: Payment, Measurement, Message, Reward, Wallet"""
+"""Additional models: Cart, Payment, Measurement, Message, Reward, Wallet"""
 
 from sqlalchemy import Column, String, DateTime, Boolean, Float, Integer, JSON, ForeignKey, Text, Enum, Uuid as UUID
 from sqlalchemy.orm import relationship
@@ -8,12 +8,68 @@ from app.db.database import Base
 import enum
 
 
+# ===================== CART MODEL =====================
+class Cart(Base):
+    __tablename__ = "carts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Cart {self.user_id}>"
+
+
+# ===================== CART ITEM MODEL =====================
+class CartItem(Base):
+    __tablename__ = "cart_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id"), nullable=False, index=True)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    
+    # Quantity
+    quantity = Column(Integer, nullable=False, default=1)
+    
+    # Purchase Type
+    purchase_type = Column(String, default="buy")  # "buy" or "rent"
+    
+    # Item Details
+    size = Column(String, nullable=True)
+    color = Column(String, nullable=True)
+    
+    # Rental Dates (if rent)
+    rental_start_date = Column(DateTime, nullable=True)
+    rental_end_date = Column(DateTime, nullable=True)
+    
+    # Customization
+    customization_details = Column(JSON, nullable=True)
+    customization_notes = Column(Text, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    cart = relationship("Cart", back_populates="items")
+
+    def __repr__(self):
+        return f"<CartItem {self.id}>"
+
+
 # ===================== PAYMENT MODEL =====================
 class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True)  # Can be null for subscription payments
+    subscription_id = Column(UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=True)  # Can be null for order payments
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     # Amount

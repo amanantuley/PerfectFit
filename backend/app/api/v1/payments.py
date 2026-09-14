@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.models import Payment, Order, PaymentStatus
+from app.models import Payment, Order, PaymentStatus, Subscription
 from app.schemas.schemas import PaymentCreate, RazorpayVerify, PaymentResponse
 from app.core.security import get_current_user
 from app.core.exceptions import OrderNotFoundError, RazorpayVerificationError
@@ -29,58 +29,98 @@ async def create_razorpay_order(
     db: Session = Depends(get_db)
 ):
     """
-    Create Razorpay order
+    Create Razorpay order for either an order or subscription
     
-    This endpoint creates a payment order that can be used to collect payment from customers
+    Either order_id or subscription_id must be provided
     """
     user_id = current_user["user_id"]
+    
+    # Determine payment type and amount
+    amount = None
+    receipt = None
+    
+    if payment_create.order_id:
+        # Order payment
+        order = db.query(Order).filter(
+            Order.id == payment_create.order_id,
+            Order.user_id == user_id
+        ).first()
 
-    # Get order
-    order = db.query(Order).filter(
-        Order.id == payment_create.order_id,
-        Order.user_id == user_id
-    ).first()
+        if not order:
+            raise OrderNotFoundError()
 
-    if not order:
-        raise OrderNotFoundError()
+        # Check if payment already exists and is completed
+        existing_payment = db.query(Payment).filter(
+            Payment.order_id == payment_create.order_id,
+            Payment.status == "completed"
+        ).first()
 
-    # Check if payment already exists
-    existing_payment = db.query(Payment).filter(
-        Payment.order_id == payment_create.order_id
-    ).first()
+        if existing_payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order already paid"
+            )
+        
+        amount = order.final_amount
+        receipt = str(order.id)
+        
+    elif payment_create.subscription_id:
+        # Subscription payment
+        subscription = db.query(Subscription).filter(
+            Subscription.id == payment_create.subscription_id,
+            Subscription.user_id == user_id
+        ).first()
 
-    if existing_payment and existing_payment.status == "completed":
+        if not subscription:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subscription not found"
+            )
+        
+        amount = subscription.price
+        receipt = str(subscription.id)
+        
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Order already paid"
+            detail="Either order_id or subscription_id must be provided"
         )
 
     try:
         # Create Razorpay order
         razorpay_order = razorpay_client.order.create({
-            "amount": int(order.final_amount * 100),  # Amount in paise
+            "amount": int(amount * 100),  # Amount in paise
             "currency": "INR",
-            "receipt": str(order.id),
+            "receipt": receipt,
             "payment_capture": 1,  # Auto-capture
             "notes": {
-                "order_id": str(order.id),
                 "user_id": str(user_id),
+                "order_id": str(payment_create.order_id) if payment_create.order_id else None,
+                "subscription_id": str(payment_create.subscription_id) if payment_create.subscription_id else None,
                 "email": current_user.get("payload", {}).get("email"),
             }
         })
 
-        # Create payment record in database
-        payment = Payment(
-            order_id=payment_create.order_id,
-            user_id=user_id,
-            amount=order.final_amount,
-            currency="INR",
-            payment_method=payment_create.payment_method,
-            razorpay_order_id=razorpay_order["id"],
-            status="pending"
-        )
+        # Create or update payment record
+        payment = db.query(Payment).filter(
+            Payment.razorpay_order_id == razorpay_order["id"]
+        ).first()
+        
+        if not payment:
+            payment = Payment(
+                order_id=payment_create.order_id,
+                subscription_id=payment_create.subscription_id,
+                user_id=user_id,
+                amount=amount,
+                currency="INR",
+                payment_method=payment_create.payment_method,
+                razorpay_order_id=razorpay_order["id"],
+                status="pending"
+            )
+            db.add(payment)
+        else:
+            payment.status = "pending"
 
-        db.add(payment)
         db.commit()
         db.refresh(payment)
 
@@ -88,7 +128,7 @@ async def create_razorpay_order(
 
         return {
             "razorpay_order_id": razorpay_order["id"],
-            "amount": order.final_amount,
+            "amount": amount,
             "currency": "INR",
             "key_id": settings.RAZORPAY_KEY_ID,
             "payment_id": str(payment.id),
@@ -111,7 +151,7 @@ async def verify_razorpay_payment(
     """
     Verify Razorpay payment signature
     
-    This endpoint verifies the payment signature from Razorpay
+    Handles both order and subscription payments
     """
     try:
         # Get payment from database
@@ -139,19 +179,24 @@ async def verify_razorpay_payment(
         payment.razorpay_payment_id = payment_verify.razorpay_payment_id
         payment.razorpay_signature = payment_verify.razorpay_signature
 
-        # Update order payment status
-        order = db.query(Order).filter(Order.id == payment.order_id).first()
-        if order:
-            order.payment_status = PaymentStatus.COMPLETED
-            order.status = "processing"
+        # Update order payment status if this is an order payment
+        if payment.order_id:
+            order = db.query(Order).filter(Order.id == payment.order_id).first()
+            if order:
+                order.payment_status = PaymentStatus.COMPLETED
+                order.status = "processing"
+                logger.info(f"✓ Order payment verified: {payment_verify.razorpay_payment_id} for order {payment.order_id}")
+        
+        # Update subscription status if this is a subscription payment
+        if payment.subscription_id:
+            subscription = db.query(Subscription).filter(Subscription.id == payment.subscription_id).first()
+            if subscription:
+                subscription.status = "active"
+                logger.info(f"✓ Subscription payment verified: {payment_verify.razorpay_payment_id} for subscription {payment.subscription_id}")
 
         db.commit()
 
         logger.info(f"✓ Payment verified: {payment_verify.razorpay_payment_id}")
-
-        # TODO: Send order confirmation email
-        # from app.tasks.celery_app import send_order_confirmation
-        # send_order_confirmation.delay(str(order.id), user.email)
 
         return {
             "status": "success",

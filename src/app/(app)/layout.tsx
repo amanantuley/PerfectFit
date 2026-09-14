@@ -50,7 +50,7 @@ import { Button } from '@/components/ui/button';
 import { usePathname, useRouter } from 'next/navigation';
 import { SubscriptionProvider, useSubscription } from '@/context/subscription-provider';
 import { AppProvider } from '@/context/app-context';
-import { auth, signOut } from '@/lib/firebase';
+import { useAuth } from '@/context/auth-provider';
 
 const pageTitles: { [key: string]: string } = {
   '/dashboard': 'Dashboard',
@@ -75,19 +75,11 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { setOpenMobile } = useSidebar();
   const { isPremium } = useSubscription();
-  const [user, setUser] = useState<any>(null);
+  const { user, loading, logout } = useAuth();
 
-  // ✅ Listen to Firebase user state and protect routes
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(currentUser => {
-      setUser(currentUser);
-      // Redirect to landing page if not logged in and not already there
-      if (!currentUser && pathname !== '/') {
-        router.replace('/');
-      }
-    });
-    return () => unsubscribe();
-  }, [router, pathname]);
+    if (!loading && !user) router.replace('/signup');
+  }, [loading, pathname, router, user]);
 
   const handleNavigation = (path: string) => {
     router.push(path);
@@ -97,8 +89,7 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
   // ✅ Improved logout with clean redirect
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      setUser(null);
+      await logout();
       router.replace('/'); // Prevent going back to dashboard
     } catch (error) {
       console.error('Error signing out:', error);
@@ -195,17 +186,17 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
                 <Button variant="ghost" className="w-full justify-start gap-2 p-2 h-auto">
                   <Avatar className="h-8 w-8">
                     <AvatarImage
-                      src={user?.photoURL || 'https://placehold.co/100x100?text=U'}
+                      src={user?.profile_image_url || undefined}
                       alt="User Avatar"
                     />
-                    <AvatarFallback>{user?.displayName?.[0] || 'U'}</AvatarFallback>
+                    <AvatarFallback>{user?.first_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}</AvatarFallback>
                   </Avatar>
                   <div className="group-data-[collapsible=icon]:hidden text-left">
                     <p className="text-sm font-medium text-sidebar-foreground">
-                      {user?.displayName || 'User'}
+                      {[user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'User'}
                     </p>
                     <p className="text-xs text-muted-foreground truncate max-w-[130px]">
-                      {user?.email || 'guest@perfectfit.ai'}
+                      {user?.email || ''}
                     </p>
                   </div>
                 </Button>

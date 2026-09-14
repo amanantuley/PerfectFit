@@ -77,8 +77,9 @@ async def get_current_user(request: Request) -> dict:
     """Dependency to get current user from token"""
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization")
+    token = request.cookies.get("perfectfit_access")
     
-    if not auth_header:
+    if not auth_header and not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authorization header",
@@ -86,16 +87,17 @@ async def get_current_user(request: Request) -> dict:
         )
     
     # Extract token from "Bearer <token>"
-    try:
-        scheme, token = auth_header.split()
-        if scheme.lower() != "bearer":
-            raise ValueError("Invalid authentication scheme")
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if auth_header:
+        try:
+            scheme, token = auth_header.split()
+            if scheme.lower() != "bearer":
+                raise ValueError("Invalid authentication scheme")
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization header",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     
     try:
         payload = verify_token(token, token_type="access")

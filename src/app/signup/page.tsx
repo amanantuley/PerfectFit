@@ -11,14 +11,8 @@ import Image from 'next/image';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import Logo from '@/components/logo';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signInWithPopup,
-  fetchSignInMethodsForEmail,
-  sendPasswordResetEmail,
-} from 'firebase/auth';
-import { auth, googleProvider } from '@/lib/firebase';
+import { ApiError, authApi } from '@/lib/api';
+import { useAuth } from '@/context/auth-provider';
 import { motion } from 'framer-motion';
 import { Loader2, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react';
 
@@ -31,12 +25,9 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const subscribeToNotifications = (email: string) => {
-  console.log(`Subscribed ${email} to PerfectFit updates.`);
-};
-
 export default function SignupPage() {
   const router = useRouter();
+  const { login, register } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,12 +59,15 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      const methods = await fetchSignInMethodsForEmail(auth, email);
-
-      if (methods.includes('password')) {
-        await signInWithEmailAndPassword(auth, email, password);
+      try {
+        const authenticatedUser = await login(email, password);
+        if (userType === 'tailor' && authenticatedUser.role !== 'tailor' && authenticatedUser.role !== 'admin') {
+          setError('This account does not have tailor access.');
+          return;
+        }
         setSuccess('Welcome back! Logging you in...');
-      } else if (methods.length === 0) {
+      } catch (loginError) {
+        if (!(loginError instanceof ApiError) || loginError.status !== 401) throw loginError;
         if (password !== confirmPassword) {
           setError('Passwords do not match.');
           return;
@@ -86,41 +80,15 @@ export default function SignupPage() {
           setError('You must accept the Terms and Privacy Policy to continue.');
           return;
         }
-        await createUserWithEmailAndPassword(auth, email, password);
-        subscribeToNotifications(email);
+        await register(email, password);
         setSuccess('Account created successfully!');
-      } else {
-        setError('This email is linked with another provider (e.g., Google).');
-        return;
       }
 
       router.push(userType === 'tailor' ? '/tailor/dashboard' : '/dashboard');
     } catch (err: any) {
-      switch (err.code) {
-        case 'auth/wrong-password':
-          setError('Incorrect password. Please try again.');
-          break;
-        case 'auth/email-already-in-use':
-          setError('This email is already registered. Please log in instead.');
-          break;
-        default:
-          setError('Authentication failed. Please check your credentials.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const isNew = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
-      if (isNew && result.user.email) subscribeToNotifications(result.user.email);
-      router.push(userType === 'tailor' ? '/tailor/dashboard' : '/dashboard');
-    } catch {
-      setError('Google sign-in failed. Please try again.');
+      setError(err instanceof ApiError && err.status === 409
+        ? 'This email is already registered. Please enter the correct password.'
+        : 'Authentication failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
@@ -129,7 +97,7 @@ export default function SignupPage() {
   const handleForgotPassword = async () => {
     if (!email) return setError('Please enter your email first.');
     try {
-      await sendPasswordResetEmail(auth, email);
+      await authApi.forgotPassword(email);
       setSuccess('Password reset email sent!');
     } catch {
       setError('Failed to send password reset link.');
@@ -205,23 +173,6 @@ export default function SignupPage() {
                   <RadioGroupItem value="tailor" id="tailor" /> Tailor
                 </Label>
               </RadioGroup>
-
-              {/* Social */}
-              <Button
-                variant="outline"
-                className="w-full flex items-center justify-center gap-2"
-                onClick={handleGoogleLogin}
-                disabled={isLoading}
-              >
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-                Continue with Google
-              </Button>
-
-              {/* Divider */}
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-                <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">or</span></div>
-              </div>
 
               {/* Form */}
               <form onSubmit={handleAuth} className="space-y-3">

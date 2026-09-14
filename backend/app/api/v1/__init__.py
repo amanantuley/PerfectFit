@@ -1,7 +1,7 @@
 """API v1 routes"""
 
 from fastapi import APIRouter
-from app.api.v1 import auth, users, products, orders, payments, platform
+from app.api.v1 import auth, users, products, orders, payments, cart, subscriptions, platform
 
 # Create API v1 router
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -12,6 +12,8 @@ api_v1_router.include_router(users.router)
 api_v1_router.include_router(products.router)
 api_v1_router.include_router(orders.router)
 api_v1_router.include_router(payments.router)
+api_v1_router.include_router(cart.router)
+api_v1_router.include_router(subscriptions.router)
 api_v1_router.include_router(platform.router)
 
 __all__ = ["api_v1_router"]

@@ -18,14 +18,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Eye, EyeOff, ShieldCheck, Sparkles, LogIn } from 'lucide-react';
 import Logo from '@/components/logo';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signInWithPopup,
-  sendPasswordResetEmail,
-} from 'firebase/auth';
-import { auth, googleProvider, db } from '@/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useAuth } from '@/context/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 
 const GoogleIcon = () => (
@@ -45,6 +38,7 @@ interface AuthDialogProps {
 export function AuthDialog({ children, triggerClassName }: AuthDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const { login, register, refresh, user } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -68,29 +62,6 @@ export function AuthDialog({ children, triggerClassName }: AuthDialogProps) {
   };
 
   const strength = getPasswordStrength(password);
-
-  // Sync profile details with Firestore
-  const syncUserProfile = async (user: any, selectedRole: 'customer' | 'tailor') => {
-    try {
-      const userRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(userRef);
-
-      if (!docSnap.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          email: user.email || '',
-          displayName: user.displayName || 'PerfectFit User',
-          photoURL: user.photoURL || '',
-          role: selectedRole,
-          createdAt: new Date().toISOString(),
-          totalOrders: 0,
-          measurements: []
-        });
-      }
-    } catch (e) {
-      console.error('Failed to sync user profile:', e);
-    }
-  };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,15 +91,15 @@ export function AuthDialog({ children, triggerClassName }: AuthDialogProps) {
         }
 
         // Create user
-        const credentials = await createUserWithEmailAndPassword(auth, email, password);
-        await syncUserProfile(credentials.user, userType);
+        await register(email, password);
         
         toast({ title: 'Welcome to PerfectFit!', description: 'Account created successfully!' });
       } else {
         // Log in
-        const credentials = await signInWithEmailAndPassword(auth, email, password);
-        // Resolve or sync user profile
-        await syncUserProfile(credentials.user, userType);
+        const authenticatedUser = await login(email, password);
+        if (userType === 'tailor' && authenticatedUser.role !== 'tailor' && authenticatedUser.role !== 'admin') {
+          throw new Error('This account does not have tailor access.');
+        }
         
         toast({ title: 'Welcome back!', description: 'Logged in successfully.' });
       }
@@ -151,30 +122,14 @@ export function AuthDialog({ children, triggerClassName }: AuthDialogProps) {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      await syncUserProfile(result.user, userType);
-      
-      toast({ title: 'Logged in successfully', description: `Welcome, ${result.user.displayName || 'User'}!` });
-      setIsOpen(false);
-      router.push(userType === 'tailor' ? '/tailor/dashboard' : '/dashboard');
-    } catch (err) {
-      console.error(err);
-      toast({ variant: 'destructive', title: 'Sign-in Failed', description: 'Google sign-in was cancelled or failed.' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleForgotPassword = async () => {
     if (!email) {
       toast({ variant: 'destructive', title: 'Email required', description: 'Please enter your email address to reset password.' });
       return;
     }
     try {
-      await sendPasswordResetEmail(auth, email);
+      const { authApi } = await import('@/lib/api');
+      await authApi.forgotPassword(email);
       toast({ title: 'Reset email sent', description: 'Please check your inbox for password reset link.' });
     } catch (err) {
       console.error(err);
@@ -258,23 +213,6 @@ export function AuthDialog({ children, triggerClassName }: AuthDialogProps) {
               <span>Tailor</span>
             </Label>
           </RadioGroup>
-
-          {/* Social login */}
-          <Button
-            variant="outline"
-            className="w-full flex items-center justify-center gap-2 border-border/60 hover:bg-secondary/40 transition-all rounded-xl py-5"
-            onClick={handleGoogleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-            <span className="font-semibold text-sm">Continue with Google</span>
-          </Button>
-
-          {/* Divider */}
-          <div className="relative my-4 flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-            <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-3 text-muted-foreground font-medium">or email</span></div>
-          </div>
 
           {/* Form with animated height/fields */}
           <form onSubmit={handleAuthSubmit} className="space-y-4">

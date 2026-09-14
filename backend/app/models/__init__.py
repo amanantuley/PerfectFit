@@ -5,6 +5,8 @@ from app.models.user import User, UserRole
 from app.models.product import Product
 from app.models.order import Order, OrderItem, OrderStatus, PaymentStatus
 from app.models.additional import (
+    Cart,
+    CartItem,
     Payment,
     Measurement,
     Message,
@@ -26,6 +28,8 @@ __all__ = [
     "OrderItem",
     "OrderStatus",
     "PaymentStatus",
+    "Cart",
+    "CartItem",
     "Payment",
     "Measurement",
     "Message",
