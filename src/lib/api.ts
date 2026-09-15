@@ -233,6 +233,12 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('access_token');
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -243,12 +249,29 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 export const authApi = {
-  register: (payload: { email: string; password: string; first_name?: string; last_name?: string }) =>
-    apiFetch<ApiUser>('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
-  login: (email: string, password: string) =>
-    apiFetch<{ access_token: string; refresh_token: string; token_type: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: async (payload: { email: string; password: string; first_name?: string; last_name?: string }) => {
+    const user = await apiFetch<ApiUser>('/auth/register', { method: 'POST', body: JSON.stringify(payload) });
+    return user;
+  },
+  login: async (email: string, password: string) => {
+    const res = await apiFetch<{ access_token: string; refresh_token: string; token_type: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    if (typeof window !== 'undefined' && res?.access_token) {
+      localStorage.setItem('access_token', res.access_token);
+      if (res.refresh_token) localStorage.setItem('refresh_token', res.refresh_token);
+    }
+    return res;
+  },
   me: () => apiFetch<ApiUser>('/auth/me'),
-  logout: () => apiFetch<{ message: string }>('/auth/logout', { method: 'POST' }),
+  logout: async () => {
+    try {
+      return await apiFetch<{ message: string }>('/auth/logout', { method: 'POST' });
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+    }
+  },
   forgotPassword: (email: string) => apiFetch<{ message: string }>('/auth/forgot-password?email=' + encodeURIComponent(email), { method: 'POST' }),
 };
 

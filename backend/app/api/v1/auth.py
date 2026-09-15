@@ -35,11 +35,15 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     """Set browser sessions without exposing JWTs to JavaScript."""
-    secure = settings.ENV.lower() == "production"
+    is_prod = settings.ENV.lower() == "production"
+    # In cross-site production deployments (e.g. Vercel frontend + Render backend), samesite="none" and secure=True are required for cookies to be sent
+    samesite = "none" if is_prod else "lax"
+    secure = True if is_prod else False
+
     response.set_cookie("perfectfit_access", access_token, httponly=True, secure=secure,
-                        samesite="lax", max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/")
+                        samesite=samesite, max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/")
     response.set_cookie("perfectfit_refresh", refresh_token, httponly=True, secure=secure,
-                        samesite="lax", max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, path="/api/v1/auth")
+                        samesite=samesite, max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, path="/api/v1/auth")
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
