@@ -25,8 +25,49 @@ async def lifespan(app: FastAPI):
         # Create all tables
         Base.metadata.create_all(bind=engine)
         logger.info("✓ Database initialized")
+
+        # Auto-seed initial products if products table is empty
+        from app.db.database import SessionLocal
+        from app.models.product import Product
+        import json, os, uuid
+
+        db = SessionLocal()
+        try:
+            if db.query(Product).count() == 0:
+                json_path = os.path.join(os.path.dirname(__file__), "..", "..", "perfectfit-db.json")
+                if os.path.exists(json_path):
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    products_data = data.get("products", [])
+                    for p in products_data:
+                        raw_id = p.get("id")
+                        try:
+                            prod_id = uuid.UUID(raw_id)
+                        except Exception:
+                            prod_id = uuid.uuid5(uuid.NAMESPACE_DNS, str(raw_id))
+
+                        prod = Product(
+                            id=prod_id,
+                            name=p["name"],
+                            type=p["type"],
+                            description=p.get("description"),
+                            price=float(p["price"]),
+                            rent_price=float(p["rentPrice"]) if p.get("rentPrice") else None,
+                            image_url=p.get("image"),
+                            data_ai_hint=p.get("dataAiHint"),
+                            stock_quantity=100,
+                            rating=float(p.get("rating", 5.0)),
+                            review_count=int(p.get("reviewCount", 0)),
+                            in_stock=bool(p.get("inStock", True)),
+                            is_active=True,
+                        )
+                        db.add(prod)
+                    db.commit()
+                    logger.info(f"✓ Seeded {len(products_data)} products into database")
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"✗ Database initialization failed: {e}")
+        logger.error(f"✗ Database initialization or seeding failed: {e}")
     
     yield
     
