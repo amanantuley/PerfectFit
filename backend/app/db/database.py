@@ -6,12 +6,24 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from app.config import settings
 
+# Determine database URL with fallback to SQLite if PostgreSQL fails or isn't running
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgresql") and "localhost" in db_url:
+    # Try connecting to postgresql, fallback to sqlite if unavailable
+    try:
+        temp_engine = create_engine(db_url, connect_args={"connect_timeout": 2})
+        with temp_engine.connect():
+            pass
+        temp_engine.dispose()
+    except Exception:
+        db_url = "sqlite:///./perfectfit.db"
+
 # Create engine
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=settings.DEBUG,
     poolclass=NullPool if settings.ENV == "testing" else None,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
 )
 
 # Create session factory

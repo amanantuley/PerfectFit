@@ -303,11 +303,14 @@ app = FastAPI(
 # CORS
 # ============================================================
 
+# CORS Middleware
+origins = [o for o in settings.CORS_ORIGINS if o != "*"]
+allow_origin_regex = r".*" if "*" in settings.CORS_ORIGINS else None
+
 app.add_middleware(
     CORSMiddleware,
-
-    allow_origins=settings.CORS_ORIGINS,
-
+    allow_origins=origins if origins else ["*"],
+    allow_origin_regex=allow_origin_regex if origins else None,
     allow_credentials=True,
 
     allow_methods=["*"],

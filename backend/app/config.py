@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # ===== FRONTEND & CORS =====
     FRONTEND_URL: str = "http://localhost:9002"
-    CORS_ORIGINS: List[str] = ["http://localhost:9002", "http://localhost:8000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:9002", "http://localhost:8000", "*"]
 
     # ===== CELERY =====
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
